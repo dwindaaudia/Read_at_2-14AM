@@ -80,18 +80,33 @@ There is no conventional UI — all gameplay happens inside chat bubbles and res
 ```
 Read_at_2-14AM/
 ├── Models/
-│   ├── GameManager.swift        # State machine, generation logic, view model
-│   ├── HardcodedDialogue.swift  # Backup dialogue (3 scenes × 3 paths × 3 denial levels)
-│   └── DenialScoreSystem.swift  # Denial score & level logic
+│   ├── Message.swift
+│   ├── PlayerChoice.swift
+│   ├── NarrativeEnums.swift
+│   └── AIModels.swift
+├── ViewModels/
+│   ├── ChatViewModel.swift
+│   └── LockScreenViewModel.swift
 ├── Views/
-│   ├── LockScreenView.swift
-│   ├── ChatRoomView.swift
-│   ├── MessageBubble.swift
-│   ├── ChoiceKeyboardView.swift
+│   ├── ContentView.swift
+│   ├── Chat/
+│   │   ├── ChatRoomView.swift
+│   │   ├── MessageBubble.swift
+│   │   ├── ChoiceKeyboardView.swift
+│   │   └── DebugStatusView.swift
+│   └── LockScreen/
+│       └── LockScreenView.swift
+├── Services/
+│   ├── AIService.swift
+│   ├── HapticService.swift
+│   ├── NarrativeEngine.swift
+│   └── RuntimeEnvironment.swift
+├── StateMachine/
+│   ├── NarrativeState.swift
+│   └── Scene1–5States.swift
+├── Utilities/
+│   ├── Extensions.swift
 │   └── GlitchLayer.swift
-├── Resources/
-│   ├── Audio/
-│   └── Assets.xcassets/
 ├── .gitignore
 ├── CONTRIBUTING.md
 └── README.md
