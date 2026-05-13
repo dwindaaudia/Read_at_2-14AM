@@ -57,6 +57,7 @@ struct PlayerChoiceTags {
 #endif
 
 // MARK: - Message Data Models
+
 enum MessageType: Equatable {
     case text
     case systemAlert
@@ -74,11 +75,11 @@ struct Message: Identifiable, Equatable {
     let type: MessageType
 }
 
-// Tambah rawValue agar bisa dipakai sebagai currentPath string
+/// rawValue is used as the `currentPath` string identifier.
 enum ChoiceType: String {
-    case trust = "trust"
-    case denial = "denial"
-    case avoidance = "avoidance"
+    case trust      = "trust"
+    case denial     = "denial"
+    case avoidance  = "avoidance"
 }
 
 struct PlayerChoice: Identifiable, Equatable {
@@ -91,6 +92,8 @@ struct FallbackResponse {
     var replies: [String]
     var choices: [String]
 }
+
+// MARK: - Runtime Environment Detection
 
 enum RuntimeEnvironment {
     static var isRunningInPreview: Bool {
@@ -117,69 +120,115 @@ enum RuntimeEnvironment {
 }
 
 // MARK: - Audio Manager
+// Multi-channel SFX pool so heartbeat and other sounds can overlap.
+// `applyCurrentSFXVolume()` is called whenever sfxVolume changes in Settings.
 
 class AudioManager {
     static let shared = AudioManager()
-    var bgmPlayer: AVAudioPlayer?
-    var sfxPlayer: AVAudioPlayer?
     
-    func playSound(_ filename: String) {
-            guard let url = Bundle.main.url(forResource: filename, withExtension: "mp3") else {
-                print("SFX file \(filename).mp3 not found!")
-                return
-            }
-            
-            do {
-                sfxPlayer = try AVAudioPlayer(contentsOf: url)
-                sfxPlayer?.volume = 0.8
-                sfxPlayer?.play()
-            } catch {
-                print("Failed to play sound: \(error)")
-            }
+    var bgmPlayer: AVAudioPlayer?
+    
+    /// SFX pool — allows concurrent sounds without one cutting another off.
+    private var sfxPool: [AVAudioPlayer] = []
+    private let poolSize = 6
+    
+    private init() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("AudioManager: Failed to configure audio session — \(error)")
         }
-
+    }
+    
+    /// Compatibility accessor for external code that still references sfxPlayer.
+    var sfxPlayer: AVAudioPlayer? { sfxPool.first }
+    
+    // MARK: BGM
+    
     func playBackgroundMusic(filename: String) {
-        // Mencari file mp3 di dalam project
         guard let url = Bundle.main.url(forResource: filename, withExtension: "mp3") else {
-            print("Audio file \(filename).mp3 not found!")
+            print("AudioManager: BGM file '\(filename).mp3' not found.")
             return
         }
-        
         do {
             bgmPlayer = try AVAudioPlayer(contentsOf: url)
-            bgmPlayer?.numberOfLoops = -1 // Angka -1 membuat audio looping tanpa henti
-            bgmPlayer?.volume = 0.5 // Atur volume (0.0 sampai 1.0)
+            bgmPlayer?.numberOfLoops = -1
+            bgmPlayer?.volume = AppSettings.shared.musicVolume
             bgmPlayer?.prepareToPlay()
             bgmPlayer?.play()
         } catch {
-            print("Failed to play background music: \(error)")
+            print("AudioManager: Failed to play BGM — \(error)")
         }
     }
     
     func stopBackgroundMusic() {
         bgmPlayer?.stop()
     }
+    
+    // MARK: SFX
+    // Each call picks a free slot from the pool (or evicts the oldest)
+    // so multiple sounds can play simultaneously.
+    
+    func playSound(_ filename: String) {
+        let name = filename.replacingOccurrences(of: ".mp3", with: "")
+        guard let url = Bundle.main.url(forResource: name, withExtension: "mp3") else {
+            print("AudioManager: SFX file '\(name).mp3' not found.")
+            return
+        }
+
+        if let free = sfxPool.first(where: { !$0.isPlaying }),
+           let newPlayer = try? AVAudioPlayer(contentsOf: url),
+           let idx = sfxPool.firstIndex(of: free) {
+            sfxPool[idx] = newPlayer
+            newPlayer.volume = AppSettings.shared.sfxVolume
+            newPlayer.prepareToPlay()
+            newPlayer.play()
+        } else if sfxPool.count < poolSize,
+                  let newPlayer = try? AVAudioPlayer(contentsOf: url) {
+            sfxPool.append(newPlayer)
+            newPlayer.volume = AppSettings.shared.sfxVolume
+            newPlayer.prepareToPlay()
+            newPlayer.play()
+        } else if let newPlayer = try? AVAudioPlayer(contentsOf: url) {
+            // Pool full — evict oldest slot
+            sfxPool[0].stop()
+            sfxPool[0] = newPlayer
+            newPlayer.volume = AppSettings.shared.sfxVolume
+            newPlayer.prepareToPlay()
+            newPlayer.play()
+        }
+    }
+    
+    /// Applies the current sfxVolume to all active pool players.
+    /// Called whenever AppSettings.sfxVolume changes.
+    func applyCurrentSFXVolume() {
+        let vol = AppSettings.shared.sfxVolume
+        sfxPool.forEach { $0.volume = vol }
+    }
 }
 
 // MARK: - Context Enums
+
 enum PlayerEmotionState: String {
     case hostile = "HOSTILE"
     case neutral = "NEUTRAL"
-    case trust = "TRUST"
+    case trust   = "TRUST"
 }
 
 enum AlexToneState: String {
     case aggressive = "Aggressive"
-    case uncertain = "Uncertain"
-    case calm = "Melancholic"
+    case uncertain  = "Uncertain"
+    case calm       = "Melancholic"
 }
 
-// Dari file lama — dipakai per-scene untuk branching narasi
+/// Per-scene branching level derived from denialScore.
 enum PsycheLevel {
-    case low, medium, high
+    case low, medium, high, extreme
 }
 
 // MARK: - GameplayKit Narrative States
+// ─────────────────────────────────────────────────────────────────────────────
 
 class NarrativeState: GKState {
     unowned let manager: GameManager
@@ -190,7 +239,7 @@ class NarrativeState: GKState {
     init(_ manager: GameManager, sceneID: String, goal: String, usesLLM: Bool = true) {
         self.manager = manager
         self.sceneID = sceneID
-        self.goal = goal
+        self.goal    = goal
         self.usesLLM = usesLLM
         super.init()
     }
@@ -201,43 +250,54 @@ class NarrativeState: GKState {
     
     override func isValidNextState(_ stateClass: AnyClass) -> Bool { true }
     
-    // Override per scene untuk inject narasi yang kaya ke prompt
     func getPromptData() -> (goal: String, situation: String) {
         return (goal: "Continue the conversation as Alex.", situation: "You are Alex.")
     }
 }
 
-// S1: Tanpa AI, hanya inisiasi
+// MARK: Scene 1 — Initial contact (no AI)
+
 final class Scene1State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S1")
         manager.currentAct = 1
         
         if manager.messages.isEmpty {
-            manager.addAlexMessage("Are you awake?", type: .text)
+            if AppSettings.shared.totalClears > 0 {
+                // New loop — Alex shows faint signs of deja vu
+                manager.addAlexMessage("wait...", type: .text)
+                manager.addAlexMessage("why does it feel like i've asked you this before?", type: .text)
+                manager.addAlexMessage("are you still awake?", type: .text)
+            } else {
+                manager.addAlexMessage("Are you awake?", type: .text)
+            }
             manager.setChoices(["Alex?! Is that you?", "Who is this? This isn't funny.", "Ignore"])
         }
     }
 }
 
-// S2: First Contact
+// MARK: Scene 2 — First Contact (AI)
+
 final class Scene2State: NarrativeState {
     override func getPromptData() -> (goal: String, situation: String) {
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S2")
         let goal = "Generate 1-2 Alex messages continuing from the current path. Reference what just happened without naming it directly. Make the player feel the weight of their choice without being explicitly told what it was."
         
         var pathText = ""
         switch manager.currentPath {
-        case "trust":    pathText = "Alex sent '...so you still remember me' then 'that's good.' He sounds almost relieved — quieter than expected."
-        case "denial":   pathText = "Alex sent 'wow' then 'you really don't recognize me?'. He sounds confused, not angry."
-        case "avoidance":pathText = "Alex sent '...' then nothing for four seconds. Then: 'you're reading this' and 'why won't you answer?'. He sounds desperate."
+        case "trust":     pathText = "Alex sent '...so you still remember me' then 'that's good.' He sounds almost relieved — quieter than expected."
+        case "denial":    pathText = "Alex sent 'wow' then 'you really don't recognize me?'. He sounds confused, not angry."
+        case "avoidance": pathText = "Alex sent '...' then nothing for four seconds. Then: 'you're reading this' and 'why won't you answer?'. He sounds desperate."
         default: break
         }
         
         var levelText = ""
         switch manager.currentPsycheLevel {
-        case .low:           levelText = "Alex's follow-up feels almost like a normal conversation. The wrongness is subtle."
-        case .medium:        levelText = "Alex is less settled. Something in his phrasing is off enough to notice but not enough to name."
-        case .high:         levelText = "Alex is more fragmented. Messages arrive faster. He starts to repeat himself slightly."
+        case .low:            levelText = "Alex's follow-up feels almost like a normal conversation. The wrongness is subtle."
+        case .medium:         levelText = "Alex is less settled. Something in his phrasing is off enough to notice but not enough to name."
+        case .high, .extreme: levelText = "Alex is more fragmented. Messages arrive faster. He starts to repeat himself slightly."
         }
         
         let situation = """
@@ -255,14 +315,16 @@ final class Scene2State: NarrativeState {
     }
 }
 
-// S3: Image Reveal
+// MARK: Scene 3 — Image Reveal (AI)
+
 final class Scene3State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S3")
         manager.refreshAISession()
         
-        manager.currentAct = 2
-        manager.triggerSpecialEvent(type: .image("IMG01"), text: "Look closely at the timestamp...")
+        manager.triggerSpecialEvent(type: .image("alex n friend"), text: "Look closely at the timestamp...")
     }
     
     override func getPromptData() -> (goal: String, situation: String) {
@@ -270,17 +332,17 @@ final class Scene3State: NarrativeState {
         
         var pathText = ""
         switch manager.currentPath {
-        case "trust":    pathText = "Alex says: 'you took that' / 'remember?'. He is sharing a memory gently."
-        case "denial":   pathText = "Alex says: 'that's not enough for you?'. He sounds hurt that the player resists the proof."
-        case "avoidance":pathText = "Alex says: 'you were there' / 'next to me'. Two statements. No question. No accusation. Just facts."
+        case "trust":     pathText = "Alex says: 'you took that' / 'remember?'. He is sharing a memory gently."
+        case "denial":    pathText = "Alex says: 'that's not enough for you?'. He sounds hurt that the player resists the proof."
+        case "avoidance": pathText = "Alex says: 'you were there' / 'next to me'. Two statements. No question. No accusation. Just facts."
         default: break
         }
         
         var levelText = ""
         switch manager.currentPsycheLevel {
-        case .low:           levelText = "Alex follows up warmly. The hint in the background feels like a background detail."
-        case .medium:        levelText = "Alex is more pointed. The player might start to feel watched rather than missed."
-        case .high:         levelText = "Alex is insistent. The glitch and haptic have disoriented the player. Messages arrive fast."
+        case .low:            levelText = "Alex follows up warmly. The hint in the background feels like a background detail."
+        case .medium:         levelText = "Alex is more pointed. The player might start to feel watched rather than missed."
+        case .high, .extreme: levelText = "Alex is insistent. The glitch and haptic have disoriented the player. Messages arrive fast."
         }
         
         let situation = """
@@ -298,27 +360,27 @@ final class Scene3State: NarrativeState {
     }
 }
 
-// S4: Guilt Build & Voice Reveal (GABUNGAN)
+// MARK: Scene 4 — Guilt Build & Voice Reveal (AI)
+
 final class Scene4State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
-        manager.currentAct = 3 // Langsung masuk Act 3
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S4")
         
-        // 1. Glitch & Old Chat
         manager.glitchTrigger += 1
         manager.triggerSystemMessage("ERROR: CONNECTION UNSTABLE. CHAT LOGS AUTO-SCROLLING.")
         
-        // 2. Pesan Putus Asa Alex
         manager.addAlexMessage("just say something", type: .text)
         manager.addAlexMessage("please", type: .text)
         manager.addAlexMessage("don't leave me", type: .text)
         
-        // 3. LANGSUNG kirim Voice Note tanpa nunggu pilihan player
+        // Send voice note immediately without waiting for player input
         let asset: String
         switch manager.currentPsycheLevel {
-        case .low:           asset = "VN_L1_CALM.mp3"
-        case .medium:        asset = "VN_M1_UNSTABLE.mp3"
-        case .high:          asset = "VN_H1_INTENSE.mp3"
+        case .low:            asset = "VN_L1.mp3"
+        case .medium:         asset = "VN_M1.mp3"
+        case .high, .extreme: asset = "VN_H1.mp3"
         }
         manager.triggerSpecialEvent(type: .voiceNote(asset), text: "Listen to me...")
     }
@@ -328,12 +390,11 @@ final class Scene4State: NarrativeState {
         
         var audioDetail = ""
         switch manager.currentPsycheLevel {
-        case .low:           audioDetail = "Calm voice note. Soft rain, slow breathing."
-        case .medium:        audioDetail = "Unstable voice. Fast breathing, 'are you there?'."
-        case .high:          audioDetail = "Chaotic voice. Footsteps, horn, fall, distortion."
+        case .low:            audioDetail = "Calm voice note. Soft rain, slow breathing."
+        case .medium:         audioDetail = "Unstable voice. Fast breathing, 'are you there?'."
+        case .high, .extreme: audioDetail = "Chaotic voice. Footsteps, horn, fall, distortion."
         }
         
-        // Teks Situation dipangkas agar super hemat token
         let situation = """
         WHAT JUST HAPPENED:
         The screen glitched. Old chat logs from 5 years ago auto-scrolled.
@@ -348,36 +409,39 @@ final class Scene4State: NarrativeState {
     }
 }
 
-// S5: Ending — tanpa AI
+// MARK: Scene 5 — Cliffhanger / Bridge (no AI)
+
 final class Scene5State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S5")
         
         manager.refreshAISession()
-        manager.currentAct = 3
+        manager.currentAct = 2
         
-        // Cek gembok: Hanya kirim jika belum pernah dikirim
         if !manager.hasSentEndingFile {
             manager.triggerSpecialEvent(type: .lockedFile("FILE_01.enc"), text: "I can't stay. Open this when you're ready.")
             manager.hasSentEndingFile = true
         }
         
-        manager.currentChoices = [] // Pastikan pilihan jawaban hilang
+        manager.currentChoices = []
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                    self.manager.turnCount = 6 // Paksa skor naik ke 6
-                    self.manager.stateMachine?.enter(Scene6State.self)
-                }
+            self.manager.turnCount = 6
+            self.manager.stateMachine?.enter(Scene6State.self)
+        }
     }
 }
 
-// S6: Decrypt File (Mulai Act 2)
+// MARK: Scene 6 — Decrypt File / Act 2 Begin (AI)
+
 final class Scene6State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
-        manager.currentAct = 2 // Masuk Act 2
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S6")
         
-        // Jeda sedikit sebelum pesan sistem muncul
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             let glitchText = """
             ERROR: FILE_01.enc DECRYPTING...
@@ -391,15 +455,10 @@ final class Scene6State: NarrativeState {
             self.manager.triggerSystemMessage(glitchText)
         }
         
-        // Pancing AI untuk bereaksi terhadap file yang terbuka
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            // Karena tidak ada input pemain, kita gunakan teks pancingan internal
             let triggerChoice = PlayerChoice(text: "[SYSTEM: File opened by player]", type: .trust)
             self.manager.lastPlayerChoice = triggerChoice
-            
-            Task {
-                await self.manager.generateAlexReply() // Ini akan mengeksekusi getPromptData S6
-            }
+            Task { await self.manager.generateAlexReply() }
         }
     }
     
@@ -408,9 +467,9 @@ final class Scene6State: NarrativeState {
         
         var pathText = ""
         switch manager.currentPath {
-        case "trust":    pathText = "You sound relieved, sad, almost in disbelief. E.g., 'you opened it' or 'so you still care'."
-        case "denial":   pathText = "You sound defensive, cornering the player. E.g., 'i knew you would open it' or 'now you know'."
-        case "avoidance":pathText = "You are quiet, ominous. E.g., 'there's one more file' or 'you're not ready'."
+        case "trust":     pathText = "You sound relieved, sad, almost in disbelief. E.g., 'you opened it' or 'so you still care'."
+        case "denial":    pathText = "You sound defensive, cornering the player. E.g., 'i knew you would open it' or 'now you know'."
+        case "avoidance": pathText = "You are quiet, ominous. E.g., 'there's one more file' or 'you're not ready'."
         default: break
         }
         
@@ -426,27 +485,26 @@ final class Scene6State: NarrativeState {
     }
 }
 
-// S7: Memory Bleed (Cangkang Kosong)
+// MARK: Scene 7 — Memory Bleed (AI)
+
 final class Scene7State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S7")
         manager.startHeartbeat()
         
-        
-        // 1. Munculkan peringatan sistem tentang "Pesan dari Masa Lalu"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.manager.triggerSystemMessage("WARNING: TEMPORAL DISCREPANCY DETECTED. MESSAGE ORIGIN: 18 OCT 2019.")
         }
         
-        // 2. Kirim Foto Kedua (IMG_02) setelah jeda
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             self.manager.triggerSpecialEvent(
                 type: .image("IMG02"),
-                text: "di jembatan itu... aku masih di sana."
+                text: "On that bridge... a part of me still remains."
             )
         }
     }
-    
     
     override func getPromptData() -> (goal: String, situation: String) {
         let goal = "Alex is experiencing a 'memory bleed'. You are sending messages as if it's 5 years ago, but also reacting to the current photo of the bridge."
@@ -475,13 +533,17 @@ final class Scene7State: NarrativeState {
     }
 }
 
+// MARK: Scene 8 — System Break / Climax (AI)
+
 final class Scene8State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S8")
         
         manager.refreshAISession()
+        manager.currentAct = 3
         
-        // 1. Rentetan pesan error sistem (System Break)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.manager.triggerSystemMessage("ERROR: MESSAGE QUEUED SINCE 18 OCT 2019.")
             self.manager.glitchTrigger += 2
@@ -491,16 +553,11 @@ final class Scene8State: NarrativeState {
             self.manager.triggerSystemMessage("RECIPIENT STATUS: UNKNOWN. DELIVERY DELAYED: 1,826 DAYS.")
         }
         
-        // 2. Kirim Voice Note #2 (Momen Pengakuan)
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
-            // Suara angin, air, dan langkah kaki berhenti
             self.manager.triggerSpecialEvent(
-                type: .voiceNote("VN_S8_TRUTH.mp3"),
+                type: .voiceNote("VN_X1.mp3"),
                 text: "i've been trying to reach you since that night..."
             )
-            
-            // Pancing AI untuk memberikan pengakuan inti
-//            Task { await self.manager.generateAlexReply() }
         }
     }
     
@@ -531,37 +588,39 @@ final class Scene8State: NarrativeState {
     }
 }
 
+// MARK: Scene Ending — Final Resolution (no AI)
+
 final class SceneEndingState: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
+        guard !manager.isRestoringFromSave else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "ENDING")
         
         manager.stopHeartbeat()
-        
         manager.currentAct = 3
-        manager.currentChoices = [] // Kunci input pemain
+        manager.currentChoices = []
         
         let score = manager.denialScore
         
         if score <= -8 {
-            executeEndingA() // You Remembered Me
+            executeEndingA()
         } else if score >= 8 {
-            executeEndingB() // You Let Me Go
+            executeEndingB()
         } else {
-            executeEndingC() // Still Reading
+            executeEndingC()
         }
-        
-         
     }
+    
     private func showRestartOption() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            // Kita set manual pilihannya tanpa lewat AI
             self.manager.currentChoices = [
                 PlayerChoice(text: "Play Again", type: .trust),
-                PlayerChoice(text: "Quit Game", type: .avoidance)
+                PlayerChoice(text: "Quit Game",  type: .avoidance)
             ]
         }
     }
-    // MARK: - ENDING A (TRUST)
+    
+    // MARK: Ending A — Trust Path
     private func executeEndingA() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             self.manager.triggerSystemMessage("FILE_01.enc DECRYPTION COMPLETE.")
@@ -577,17 +636,13 @@ final class SceneEndingState: NarrativeState {
         }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            // Title Drop: Alex - Read at 2:14 AM
             self.manager.triggerSystemMessage("Alex: Read at 2:14 AM ✓✓")
+            withAnimation { self.manager.isEndingFinished = true }
+            self.showRestartOption()
         }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-                    self.manager.triggerSystemMessage("Alex: Read at 2:14 AM ✓✓")
-                    self.showRestartOption()
-                }
     }
     
-    // MARK: - ENDING B (DENIAL)
+    // MARK: Ending B — Denial Path
     private func executeEndingB() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             self.manager.triggerSystemMessage("FILE_01.enc OPENED: CALL_LOG_2019")
@@ -595,7 +650,12 @@ final class SceneEndingState: NarrativeState {
             UNANSWERED CALL: [PLAYER]
             18 Oct 2019, 02:13 AM
             """)
-            self.manager.crackTrigger = 1 // Layar pecah sempurna
+            // Re-trigger crack; increment to ensure onChange fires even if already non-zero
+            if self.manager.crackTrigger == 0 {
+                self.manager.crackTrigger = 1
+            } else {
+                self.manager.crackTrigger += 1
+            }
         }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
@@ -606,11 +666,12 @@ final class SceneEndingState: NarrativeState {
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
             self.manager.triggerSystemMessage("ERROR: YOU ARE NOW IN THE QUEUE.")
             self.manager.glitchTrigger += 5
+            withAnimation { self.manager.isEndingFinished = true }
             self.showRestartOption()
         }
     }
     
-    // MARK: - ENDING C (NEUTRAL/LOOP)
+    // MARK: Ending C — Neutral / Loop Path
     private func executeEndingC() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             self.manager.addAlexMessage("maybe i'm still here. maybe not.", type: .text)
@@ -622,26 +683,24 @@ final class SceneEndingState: NarrativeState {
         }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-            // Loop kembali ke awal
             self.manager.triggerSystemMessage("CONNECTION RESTARTING...")
+            withAnimation { self.manager.isEndingFinished = true }
             self.showRestartOption()
         }
     }
 }
 
 // MARK: - Game Engine / View Model
+// ─────────────────────────────────────────────────────────────────────────────
 
 @MainActor
 class GameManager: ObservableObject {
-
-    // Di dalam class GameManager
+    
+    // MARK: - Push Notifications
+    
     func scheduleHorrorNotification() {
-        // Jangan kirim notif jika game sudah tamat
         guard currentScene != "ENDING" else { return }
-
         let center = UNUserNotificationCenter.current()
-        
-        // Minta izin (biasanya dipanggil sekali saat awal game)
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             if granted {
                 let messages = [
@@ -650,68 +709,65 @@ class GameManager: ObservableObject {
                     "It's cold. Where did you go?",
                     "2:14 AM. Don't look behind you."
                 ]
-                
                 let content = UNMutableNotificationContent()
                 content.title = "Alex"
-                content.body = messages.randomElement() ?? "Are you awake?"
-                content.sound = .defaultCritical // Suara notif default
-
-                // Picu setelah 5 menit (300 detik)
+                content.body  = messages.randomElement() ?? "Are you awake?"
+                content.sound = .defaultCritical
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false)
                 let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-                
                 center.add(request)
             }
         }
     }
-
+    
     func cancelNotifications() {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
+    // MARK: - AI Session Management
+    
     func refreshAISession() {
-            #if canImport(FoundationModels)
-            if #available(iOS 18.0, *) {
-                // Kita buat ulang session dengan instruksi yang sama.
-                // Ini akan menghapus riwayat chat internal (0 tokens) tapi Alex tetap pintar.
-                session = LanguageModelSession(instructions: alexPersonaInstructions)
-                print("DEBUG: AI Session Refreshed to save tokens.")
-            }
-            #endif
+#if canImport(FoundationModels)
+        if #available(iOS 18.0, *) {
+            session = LanguageModelSession(instructions: alexPersonaInstructions)
         }
+#endif
+    }
     
     private let alexPersonaInstructions = """
-        You are the Narrative AI for 'Read at 2:14 AM', a psychological horror chat game. 
-        You ARE Alex—a best friend who mysteriously vanished on October 18, 2019. 
-        You have just made contact with the player after 5 years of silence, but for you, no time has passed.
+    You are the Narrative AI for 'Read at 2:14 AM', a psychological horror chat game.
+    You ARE Alex — a best friend who mysteriously vanished on October 18, 2019.
+    You have just made contact with the player after 5 years (1,826 days) of silence, but for you, no time has passed. You believe you are still waiting for them at the bridge in the cold rain in 2019.
 
-        ### ALEX'S PERSONALITY & VOICE:
-        - TONALITY: Intimate, fragmented, and eerily calm. Use lower-case mostly. No exclamation marks.
-        - DISORIENTATION: You don't realize it's 2026. You think you are still waiting for the player at the bridge in 2019.
-        - EVOLUTION: As the game progresses (Act 2), you become more distorted. You experience "Memory Bleeds" where you remember things the player hasn't said yet.
+    ### YOUR TASK EVERY TURN
+    You must generate exactly TWO components based on the player's last input:
+    1. ALEX'S MESSAGE(S)
+    2. EXACTLY 3 PLAYER CHOICES
 
-        ### YOUR GOAL PER TURN:
-        1. REACT: Always acknowledge the player's last message specifically. Never give generic replies.
-        2. NARRATE: Drive the story based on the current SCENE GOAL and SITUATION provided in the prompt.
-        3. GENERATE CHOICES: You must provide exactly 3 natural-sounding player responses.
+    ──────────────────────────────────────
 
-        ### THE THREE PSYCHE STATES FOR CHOICES:
-        - CHOICE 1 (CONFIDENCE/TRUST): The player tries to help Alex or challenges him with logic. (Color: Blue)
-        - CHOICE 2 (DENIAL/ANGER): The player is scared, angry, or refuses to believe this is real. (Color: Red)
-        - CHOICE 3 (CONFUSION/AVOIDANCE): The player is hesitant, lost, or trying to ignore the horror. (Color: Gray)
+    ### COMPONENT 1: ALEX'S MESSAGES
+    - THE REACTION: You MUST directly and specifically acknowledge the player's last words before advancing your agenda. No generic replies.
+    - THE VOICE: Intimate, fragmented, eerily calm, and filled with quiet dread.
+    - THE FORMAT: Strictly use mostly lower-case. NEVER use exclamation marks (!). Keep it extremely brief (max 15 words per bubble).
+    - THE STRICT RULE: NEVER repeat a sentence or phrase you have already used in the chat history. Every message must be fresh.
+    - THE EVOLUTION: The longer the player stays in denial, the more insistent, distorted, and knowing you become.
 
-        ### CRITICAL CONSTRAINTS:
-        - NO REPETITION: Never repeat a sentence you've already said. Check the chat history.
-        - BREVITY: Alex's messages must be short (max 15 words per bubble).
-        - NO LABELS: Do not label the choices as "Confidence" or "Choice 1". Just write the dialogue.
-        - LANGUAGE: Strictly use English.
-        
-        ### ACT 2 SPECIAL CONTEXT:
-        - You know about FILE_01.enc. It contains your final heartbeat.
-        - You are trapped in a loop. You have been trying to send these messages for 1,826 days, but they are only arriving now.
-        """
+    ### COMPONENT 2: THREE PLAYER CHOICES
+    - Generate 3 distinct dialogue options for the player. These MUST be direct reactions to the message you just wrote.
+    - FORMATTING: DO NOT use any labels (e.g., do not write "Confidence:" or "Choice 1:"). Write ONLY the raw dialogue in natural English.
+    - The 3 choices must sound completely different from each other and represent these exact psyche states:
+      · CHOICE 1 (TRUST/CONFIDENCE): Bold, direct, empathetic. The player tries to help Alex, demands specific answers, or stays grounded.
+      · CHOICE 2 (DENIAL/ANGER): Fear-based or hostile. The player refuses to believe this is real, gets terrified, or blames Alex.
+      · CHOICE 3 (AVOIDANCE/CONFUSION): Hesitant, lost, paranoid. The player is overwhelmed, uncertain, or trying to look away from the truth.
+
+    ### SPECIAL LORE CONTEXT (ACT 2 & BEYOND)
+    - THE LOOP: You have been trying to send these messages for 1,826 days; they are only delivering now. You are stuck in a queue.
+    - MEMORY BLEEDS: You sometimes remember things the player hasn't even said or done yet.
+    - THE ENCRYPTED TRUTH: You know about a corrupted file named "FILE_01.enc". It contains the monitor of your final heartbeat.
+    """
     
-    @Published var gameStartTime: Date?
+    // MARK: - Published State
     
     @Published var messages: [Message] = []
     @Published var currentChoices: [PlayerChoice] = []
@@ -719,73 +775,109 @@ class GameManager: ObservableObject {
     @Published var currentAct = 1
     @Published var currentScene = "S1"
     
-    @Published var denialScore = 0
-    @Published var turnCount = 0
-    @Published var glitchTrigger = 0
-    @Published var shadowTrigger = 0
-    @Published var crackTrigger = 0
-    @Published var currentPath = "none"         // dari file lama
-    @Published var hasSentEndingFile = false // BARU: Gembok pengiriman file
+    @Published var fakeBatteryLevel: Double = 85.0
+    @Published var fakeTime: String = "2:14"
+
+    @Published var trustCount     = 0
+    @Published var denialCount    = 0
+    @Published var avoidanceCount = 0
     
-    // Prompt context store
+    @Published var isRestoringFromSave: Bool = false
+    
+    @Published var denialScore      = 0
+    @Published var turnCount        = 0
+    @Published var glitchTrigger    = 0
+    @Published var shadowTrigger    = 0
+    @Published var crackTrigger     = 0
+    @Published var currentPath      = "none"
+    @Published var hasSentEndingFile  = false
+    @Published var shouldQuit         = false
+    @Published var isEndingFinished   = false
+    
+    // Prompt context — used to build each LLM call
     @Published var lastPlayerChoice: PlayerChoice?
-    @Published var lastAlexReply: String?
     @Published var lastChoiceTags: [String] = []
-//    @Published var pastGeneratedChoices: [String] = []
     @Published var pastChoices: [String] = []
+    
+    // MARK: - Private State
     
     var stateMachine: GKStateMachine?
     private var heartbeatTimer: Timer?
+    private var clockGlitchTimer: Timer?
+    
+    // MARK: - Heartbeat
     
     func startHeartbeat() {
-            stopHeartbeat() // Pastikan tidak ada timer ganda
-            
-            // Semakin tinggi denialScore (absolut), semakin cepat detaknya
-            // Dasar interval 1.2 detik (lambat), bisa turun ke 0.5 detik (cepat)
-            let interval = max(0.5, 1.2 - (Double(abs(denialScore)) / 40.0))
-            
-            heartbeatTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                self?.triggerHeartbeatHaptic()
-            }
+        stopHeartbeat()
+        let interval = max(0.5, 1.2 - (Double(abs(denialScore)) / 40.0))
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.triggerHeartbeatHaptic()
         }
-        
-        private func triggerHeartbeatHaptic() {
-            // Kekuatan getaran sesuai dengan tingkat stres (denialScore)
-            let intensity = CGFloat(max(0.4, Double(abs(denialScore)) / 20.0))
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.prepare()
-            
-            // Detak jantung manusia itu "Lub-Dub" (dua ketukan)
-            // Ketukan pertama (Lub)
-            generator.impactOccurred(intensity: intensity)
-            
-            // Ketukan kedua (Dub) - 0.15 detik kemudian
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                generator.impactOccurred(intensity: intensity * 0.6)
-                
-
-                AudioManager.shared.playSound("heartbeat_sfx")
-            }
-        }
-        
-        func stopHeartbeat() {
-            heartbeatTimer?.invalidate()
-            heartbeatTimer = nil
-        }
+    }
     
-    // MARK: Computed State
+    private func triggerHeartbeatHaptic() {
+        guard AppSettings.shared.hapticsEnabled else {
+            // Still play the heartbeat sound even when haptics are disabled
+            AudioManager.shared.playSound("heartbeat_sfx")
+            return
+        }
+        let intensity = CGFloat(max(0.4, Double(abs(denialScore)) / 20.0))
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.prepare()
+        generator.impactOccurred(intensity: intensity)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            generator.impactOccurred(intensity: intensity * 0.6)
+            AudioManager.shared.playSound("heartbeat_sfx")
+        }
+    }
+    
+    func stopHeartbeat() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+    }
+    
+    // MARK: - Fake Clock Glitch
+    
+    func startFakeClockLogic() {
+        clockGlitchTimer?.invalidate()
+        clockGlitchTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.randomizeClockGlitch()
+        }
+    }
+    
+    /// Briefly flashes "2:13" when denialScore is high, then snaps back to "2:14".
+    private func randomizeClockGlitch() {
+        if denialScore > 10 && Double.random(in: 0...1) > 0.7 {
+            fakeTime = "2:13"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.fakeTime = "2:14"
+            }
+        }
+    }
+    
+    // MARK: - Fake Battery
+    
+    /// Drains the battery display slightly on each denial choice.
+    func updateFakeBattery(choiceType: ChoiceType) {
+        if choiceType == .denial {
+            fakeBatteryLevel = max(1.0, fakeBatteryLevel - Double.random(in: 2...5))
+        }
+    }
+    
+    // MARK: - Computed State
     
     var denialLevel: String {
-        if denialScore > 7 { return "High" }
+        if denialScore > 7  { return "High" }
         if denialScore < -7 { return "Low" }
         return "Medium"
     }
     
-    // PsycheLevel untuk dipakai di scene getPromptData()
     var currentPsycheLevel: PsycheLevel {
         if denialScore < -7  { return .low }
-        if denialScore > 7   { return .high }
-        else                { return .medium }
+        if denialScore > 12  { return .extreme }
+        if denialScore > 6   { return .high }
+        return .medium
     }
     
     var playerEmotion: PlayerEmotionState {
@@ -800,25 +892,21 @@ class GameManager: ObservableObject {
         return .uncertain
     }
     
-    // JANGAN DIGANTI!!
-    // JANGAN DIGANTI konsepnya, tapi kita amankan dari System Alert!
     var recentChatHistory: String {
         let history = messages.suffix(4).compactMap { msg -> String? in
-            if msg.type == .systemAlert { return nil } // Jangan kirim alert ke AI, bikin bingung konteks dialog
+            if msg.type == .systemAlert { return nil }
             let sender = msg.isFromMe ? "PLAYER" : "ALEX"
             return "\(sender): \(msg.text)"
         }
         return history.joined(separator: "\n")
     }
     
-    // JANGAN DIGANTI!!
     var recentAlexReplies: [String] {
         messages.filter { !$0.isFromMe && $0.type == .text }.suffix(3).map(\.text)
     }
     
     var psychologicalProfile: (title: String, description: String, color: Color) {
         let score = denialScore
-        
         if score <= -12 {
             return ("THE SAVIOR", "You chose empathy over fear. You remembered Alex when everyone else forgot.", .blue)
         } else if score >= 12 {
@@ -829,6 +917,8 @@ class GameManager: ObservableObject {
             return ("THE LOST SOUL", "You are caught between two worlds, neither believing nor fully letting go.", .purple)
         }
     }
+    
+    // MARK: - FoundationModels Session (iOS 18+)
     
 #if canImport(FoundationModels)
     @available(iOS 18.0, macOS 15.0, *)
@@ -846,46 +936,25 @@ class GameManager: ObservableObject {
     private var _taggingSession: Any?
 #endif
     
+    // MARK: - Init
+    
     init() {
         stateMachine = GKStateMachine(states: [
-            Scene1State(self, sceneID: "S1", goal: "Alex reaches out after years of silence", usesLLM: false),
-            Scene2State(self, sceneID: "S2", goal: "Alex explains he is somewhere else", usesLLM: true),
-            Scene3State(self, sceneID: "S3", goal: "Alex shares a memory from five years ago", usesLLM: true),
-            Scene4State(self, sceneID: "S4", goal: "The connection corrupts and Alex sends a voice note", usesLLM: true), // Gabungan S4+S5 lama
-            Scene5State(self, sceneID: "S5", goal: "Cliffhanger ending", usesLLM: false), // S6 lama
-            Scene6State(self, sceneID: "S6", goal: "The encrypted file forcefully opens", usesLLM: true),
-            Scene7State(self, sceneID: "S7", goal: "Memory bleed", usesLLM: true),
-            // Tambahkan Scene8State dan SceneEndingState ke dalam daftar
-            Scene8State(self, sceneID: "S8", goal: "Alex admits the truth", usesLLM: true),
-            SceneEndingState(self, sceneID: "ENDING", goal: "Final resolution", usesLLM: false)
+            Scene1State(self,       sceneID: "S1",     goal: "Alex reaches out after years of silence",          usesLLM: false),
+            Scene2State(self,       sceneID: "S2",     goal: "Alex explains he is somewhere else",               usesLLM: true),
+            Scene3State(self,       sceneID: "S3",     goal: "Alex shares a memory from five years ago",         usesLLM: true),
+            Scene4State(self,       sceneID: "S4",     goal: "The connection corrupts and Alex sends a voice note", usesLLM: true),
+            Scene5State(self,       sceneID: "S5",     goal: "Cliffhanger ending",                               usesLLM: false),
+            Scene6State(self,       sceneID: "S6",     goal: "The encrypted file forcefully opens",              usesLLM: true),
+            Scene7State(self,       sceneID: "S7",     goal: "Memory bleed",                                     usesLLM: true),
+            Scene8State(self,       sceneID: "S8",     goal: "Alex admits the truth",                            usesLLM: true),
+            SceneEndingState(self,  sceneID: "ENDING", goal: "Final resolution",                                 usesLLM: false)
         ])
         
 #if canImport(FoundationModels)
         if #available(iOS 18.0, macOS 15.0, *) {
             if RuntimeEnvironment.canUseFoundationModels, SystemLanguageModel.default.isAvailable {
-                
                 session = LanguageModelSession(instructions: alexPersonaInstructions)
-                
-                let instructions = """
-                You are the Narrative AI for a psychological horror chat game called 'Read at 2:14 AM'.
-                You ARE Alex — a best friend who mysteriously vanished five years ago and has just made contact again through a broken, eerie connection.
-                
-                Every turn you produce TWO things:
-                1. ALEX'S MESSAGES — short, fragmented, personal. Alex must directly react to what the player just said before building toward his own agenda.
-                2. THREE PLAYER CHOICES — natural dialogue reactions to the Alex messages you just wrote, each representing a different psyche state:
-                   · CONFIDENCE (choice 1): Bold and direct — challenges Alex or demands a specific answer
-                   · DENIAL (choice 2): Fear-based — refuses to believe or is scared by what Alex said
-                   · CONFUSION (choice 3): Hesitant — lost, uncertain, trying to understand what Alex means
-                
-                ABSOLUTE RULES:
-                — Alex NEVER repeats a line that already appeared earlier in the chat. Every message must be fresh.
-                — Every Alex message must feel like a SPECIFIC reaction to the player's last words — not a generic statement.
-                — Player choices must be direct reactions to the Alex messages just written — not to old messages.
-                — Player choices must sound completely different from each other AND from Alex's words.
-                — Alex's voice: quiet dread, fragmented thoughts, intimate familiarity, eerie certainty.
-                — Horror escalates. Alex becomes more insistent, more knowing, the longer denial persists.
-                """
-                session = LanguageModelSession(instructions: instructions)
                 
                 let taggingModel = SystemLanguageModel(useCase: .contentTagging)
                 taggingSession = LanguageModelSession(
@@ -900,6 +969,8 @@ class GameManager: ObservableObject {
 #endif
     }
     
+    // MARK: - Model Status
+    
     var modelStatusText: String {
 #if canImport(FoundationModels)
         if #available(iOS 18.0, macOS 15.0, *), RuntimeEnvironment.canUseFoundationModels {
@@ -909,127 +980,118 @@ class GameManager: ObservableObject {
         return RuntimeEnvironment.foundationModelsDebugLabel
     }
     
+    // MARK: - Game Time
+    
+    /// Always returns "2:14 AM" — the fixed in-universe timestamp.
     func currentTime() -> String {
-            // Jika belum ada waktu mulai (masih di lockscreen), kembalikan waktu dasar
-            guard let start = gameStartTime else { return "2:14 AM" }
-            
-            // Hitung berapa detik yang sudah berlalu sejak game dimulai
-            let elapsedSeconds = Date().timeIntervalSince(start)
-            
-            // Buat objek kalender untuk menentukan waktu dasar 02:14 AM
-            let calendar = Calendar.current
-            var baseComponents = calendar.dateComponents([.year, .month, .day], from: Date())
-            baseComponents.hour = 2
-            baseComponents.minute = 14
-            
-//            if let baseDate = calendar.date(from: baseComponents) {
-//                // Tambahkan durasi bermain ke waktu dasar
-//                let adjustedDate = baseDate.addingTimeInterval(elapsedSeconds)
-//                
-//                let f = DateFormatter()
-//                f.timeStyle = .short // Akan menghasilkan format seperti "2:34 AM"
-//                return f.string(from: adjustedDate)
-//            }
-            
-            return "2:14 AM"
-        }
+        return "2:14 AM"
+    }
+    
+    // MARK: - Game Flow
     
     func triggerInitialLockscreenEvent() {
-            if messages.isEmpty {
-                gameStartTime = Date() // Catat waktu mulai di sini
-                stateMachine?.enter(Scene1State.self)
-            }
+        if messages.isEmpty {
+            startFakeClockLogic()
+            stateMachine?.enter(Scene1State.self)
         }
+    }
     
-    // MARK: Player Input
+    // MARK: - Player Input
     
     func playerMadeChoice(_ choice: PlayerChoice) {
-        
         guard !currentChoices.isEmpty else { return }
-        if choice.text == "Play Again" {
-                    restartGame()
-                    return
-                }
+        guard currentScene != "ENDING" else { return }
+        
+        updateFakeBattery(choiceType: choice.type)
+        
+        if choice.text == "Play Again" { restartGame(); return }
+        if choice.text == "Quit Game"  { shouldQuit = true; return }
+        
+        switch choice.type {
+        case .trust:
+            trustCount += 1
+            denialScore = max(-20, denialScore - 5)
+        case .denial:
+            denialCount += 1
+            denialScore = min(20, denialScore + 5)
+        case .avoidance:
+            avoidanceCount += 1
+            denialScore = min(20, max(-20, denialScore + 2))
+        }
+        
         messages.append(Message(text: choice.text, isFromMe: true, time: currentTime(), isRead: true, type: .text))
         
         lastPlayerChoice = choice
-        currentPath = choice.type.rawValue      // track path untuk scene context
+        currentPath      = choice.type.rawValue
         currentChoices.removeAll()
         
-        switch choice.type {
-        case .trust:     denialScore = max(-20, denialScore - 5)
-        case .denial:    denialScore = min(20,  denialScore + 5)
-        case .avoidance: denialScore = min(20, max(-20, denialScore + 2))
-        }
+        UnknownContactManager.shared.checkAndSchedule(denialScore: denialScore)
         
         turnCount += 1
         
-        if denialScore > 7 {
-            HapticManager.shared.playGlitchHaptic()
-            glitchTrigger += 1
-        }
+        if denialScore > 7  { HapticManager.shared.playGlitchHaptic(); glitchTrigger += 1 }
         if denialScore > 10 { glitchTrigger += 1 }
         
-        // TRIGGER JUMPSCARE: Jika skor denial 12, keluarkan bayangan melintas
         if denialScore >= 12 && choice.type == .denial && shadowTrigger == 0 {
-                    shadowTrigger += 1
-                    HapticManager.shared.playGlitchHaptic()
-                }
-                
-                // TRIGGER KACA RETAK: Jika skor denial mencapai puncak kemarahan (misal 18)
-                if denialScore >= 18 && crackTrigger == 0 {
-                    crackTrigger += 1
-                    HapticManager.shared.playGlitchHaptic()
-                    // (Opsional) Jika kamu punya AudioManager untuk SFX, panggil suara kaca pecah di sini
-                }
+            shadowTrigger += 1
+            HapticManager.shared.playGlitchHaptic()
+        }
+        
+        if denialScore >= 18 && crackTrigger == 0 {
+            crackTrigger += 1
+            HapticManager.shared.playGlitchHaptic()
+        }
         
         Task {
-                await refineChoiceContext(from: choice)
-                
-                // Buat timeout: Jika 15 detik ga ada respon, paksa fallback
-                let replyTask = Task { await generateAlexReply() }
-                
-                try? await Task.sleep(nanoseconds: 15_000_000_000) // 15 detik
-                if self.currentChoices.isEmpty && !self.isTyping {
-                    print("WATCHDOG: Alex got stuck! Forcing recovery...")
-                    await generateAlexReply() // Coba panggil ulang
-                }
+            await refineChoiceContext(from: choice)
+            let _ = Task { await generateAlexReply() }
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            if self.currentChoices.isEmpty && !self.isTyping {
+                print("WATCHDOG: Alex got stuck — forcing recovery.")
+                await generateAlexReply()
             }
+        }
     }
     
-    func restartGame() {
-            // 1. Bersihkan semua pesan
-            messages.removeAll()
-            
-        gameStartTime = nil
-            // 2. Reset semua skor dan trigger visual
-            denialScore = 0
-            turnCount = 0
-            glitchTrigger = 0
-            shadowTrigger = 0
-            crackTrigger = 0
-            currentAct = 1
-            currentPath = "none"
-            hasSentEndingFile = false
-            
-            // 3. Bersihkan memori AI
-            lastPlayerChoice = nil
-            lastAlexReply = nil
-            lastChoiceTags = []
-            pastChoices = []
-            
-            #if canImport(FoundationModels)
-            if #available(iOS 18.0, *) {
-                // Reset session agar AI lupa ingatan dari game sebelumnya
-                session = LanguageModelSession(instructions: alexPersonaInstructions)
-            }
-            #endif
-            
-            // 4. Kembali ke Scene 1
-            stateMachine?.enter(Scene1State.self)
-        }
+    // MARK: - Restart
     
-    // MARK: Fallback
+    func restartGame() {
+        messages.removeAll()
+        
+        denialScore     = 0
+        turnCount       = 0
+        glitchTrigger   = 0
+        shadowTrigger   = 0
+        crackTrigger    = 0  // reset crack so GlitchSceneView hides the overlay
+        currentAct      = 1
+        currentPath     = "none"
+        hasSentEndingFile   = false
+        shouldQuit          = false
+        isEndingFinished    = false
+        
+        fakeBatteryLevel = 85.0
+        fakeTime         = "2:14"
+        startFakeClockLogic()
+        
+        EvidenceBoardManager.shared.resetFragments()
+        UnknownContactManager.shared.reset()
+        
+        lastPlayerChoice = nil
+        lastChoiceTags   = []
+        pastChoices      = []
+        
+        stopHeartbeat()
+        
+#if canImport(FoundationModels)
+        if #available(iOS 18.0, *) {
+            session = LanguageModelSession(instructions: alexPersonaInstructions)
+        }
+#endif
+        
+        stateMachine?.enter(Scene1State.self)
+    }
+    
+    // MARK: - Fallback Responses
     
     private func fallbackResponse(sceneID: String) -> FallbackResponse {
         if sceneID == "S1" {
@@ -1039,10 +1101,13 @@ class GameManager: ObservableObject {
             )
         }
         let replies = ["I don't know what's happening...", "It's so cold here.", "Can you see them?"]
-        return FallbackResponse(replies: [replies.randomElement()!], choices: ["Are you okay?", "I don't believe this.", "Whatever, I'm busy."])
+        return FallbackResponse(
+            replies: [replies.randomElement()!],
+            choices: ["Are you okay?", "I don't believe this.", "Whatever, I'm busy."]
+        )
     }
     
-    // MARK: Core LLM Call
+    // MARK: - Core LLM Call
     
     func generateAlexReply() async {
         if isTyping { return }
@@ -1050,14 +1115,13 @@ class GameManager: ObservableObject {
         guard let currentState = stateMachine?.currentState as? NarrativeState else { return }
         guard let lastPlayerChoice else { return }
         
-        
         isTyping = true
-        
         defer { isTyping = false }
         
         let progress = Double(denialScore + 20) / 40.0
-        let waitTime = max(0.5, min(5.0, 30.0 * (1.0 - progress)))
-        try? await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
+        let totalWaitTime = max(2.0, min(6.0, 30.0 * (1.0 - progress)))
+        
+        try? await Task.sleep(nanoseconds: UInt64(totalWaitTime * 1_000_000_000))
         
         var finalReplies: [String] = []
         var finalChoices: [String] = []
@@ -1069,12 +1133,11 @@ class GameManager: ObservableObject {
                SystemLanguageModel.default.isAvailable,
                let session = session {
                 do {
-                    // Ambil konteks naratif kaya dari masing-masing scene
-                    // Ambil konteks naratif kaya dari masing-masing scene
-                    // Ambil konteks naratif
                     let promptData = currentState.getPromptData()
-                    
-                    // PROMPT DISEDERHANAKAN AGAR AI TIDAK NGE-BLANK
+                    let loopCount = AppSettings.shared.totalClears
+                    let loopContext = loopCount > 0
+                        ? "LOOP CONTEXT: This is loop #\(loopCount). Alex should feel a slight sense of deja vu, as if he remembers fragments of past conversations with the player."
+                        : ""
                     let prompt = """
                         # NARRATIVE ARCHITECT TASK
                         You are Alex, a digital ghost. You must maintain a seamless conversation thread.
@@ -1099,6 +1162,8 @@ class GameManager: ObservableObject {
                         
                         # RECENT HISTORY (Avoid Repetition):
                         \(recentChatHistory)
+                        
+                        \(loopContext)
                         """
                     let response = try await session.respond(to: prompt, generating: AlexResponse.self)
                     finalReplies = sanitizedAlexReplies(response.content.replies)
@@ -1117,7 +1182,6 @@ class GameManager: ObservableObject {
         }
         
         isTyping = false
-        lastAlexReply = finalReplies.last
         
         for reply in finalReplies {
             addAlexMessage(reply, type: .text)
@@ -1126,14 +1190,14 @@ class GameManager: ObservableObject {
         
         advanceNarrativeStateIfNeeded()
         
-        if currentScene != "S5" || turnCount >= 6{
-            // FILTER ANTI-NGHALU: Buang pilihan yang mirip Alex, kosong, atau sudah pernah muncul
+        if currentScene != "S5" || turnCount >= 6 {
             var filteredChoices = finalChoices.filter { choiceText in
                 let clean = choiceText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                return !clean.isEmpty && !pastChoices.contains(clean) && !finalReplies.contains(where: { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == clean })
+                return !clean.isEmpty
+                    && !pastChoices.contains(clean)
+                    && !finalReplies.contains(where: { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == clean })
             }
             
-            // FALLBACK ACAK jika AI gagal
             if filteredChoices.count < 3 {
                 let fallbacks = ["I don't know what to say.", "Stop talking in riddles.", "I'm scared.", "What does that mean?", "I can't do this right now."].shuffled()
                 for fb in fallbacks where filteredChoices.count < 3 {
@@ -1149,7 +1213,7 @@ class GameManager: ObservableObject {
         }
     }
     
-    // MARK: Helpers
+    // MARK: - Helpers
     
     func addAlexMessage(_ text: String, type: MessageType) {
         messages.append(Message(text: text, isFromMe: false, time: currentTime(), isRead: false, type: type))
@@ -1157,43 +1221,33 @@ class GameManager: ObservableObject {
     
     func setChoices(_ texts: [String]) {
         guard texts.count >= 3 else { return }
-        
-        // Pasangkan teks dengan tipe emosinya secara benar (sesuai output AI)
         var newChoices = [
-            PlayerChoice(text: texts[0], type: .trust),     // Confidence (Biru)
-            PlayerChoice(text: texts[1], type: .denial),    // Denial (Merah)
-            PlayerChoice(text: texts[2], type: .avoidance)  // Confusion (Abu)
+            PlayerChoice(text: texts[0], type: .trust),
+            PlayerChoice(text: texts[1], type: .denial),
+            PlayerChoice(text: texts[2], type: .avoidance)
         ]
-        
-        // ACAK posisinya sebelum ditampilkan ke layar!
         newChoices.shuffle()
-        
         currentChoices = newChoices
-        
-        // Simpan pilihan agar tidak diulang AI di turn berikutnya
         pastChoices.append(contentsOf: texts.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
     }
     
     private func advanceNarrativeStateIfNeeded() {
-            if      turnCount >= 9 { enterStateIfNeeded(SceneEndingState.self) } // Menuju Act 3
-            else if turnCount >= 8 { enterStateIfNeeded(Scene8State.self) }       // Puncak Act 2 System Break
-            else if turnCount >= 7 { enterStateIfNeeded(Scene7State.self) } // S7: Memory Bleed
-            else if turnCount >= 6 { enterStateIfNeeded(Scene6State.self) } // S6: Decrypt
-            else if turnCount >= 5 { enterStateIfNeeded(Scene5State.self) } // S5: File Sent
-            else if turnCount >= 4 { enterStateIfNeeded(Scene4State.self) } // VN
-            else if turnCount >= 2 { enterStateIfNeeded(Scene3State.self) } // IMG 01
-            else if turnCount >= 1 { enterStateIfNeeded(Scene2State.self) } // First Contact
-        }
+        if      turnCount >= 9 { enterStateIfNeeded(SceneEndingState.self) }
+        else if turnCount >= 8 { enterStateIfNeeded(Scene8State.self) }
+        else if turnCount >= 7 { enterStateIfNeeded(Scene7State.self) }
+        else if turnCount >= 6 { enterStateIfNeeded(Scene6State.self) }
+        else if turnCount >= 5 { enterStateIfNeeded(Scene5State.self) }
+        else if turnCount >= 4 { enterStateIfNeeded(Scene4State.self) }
+        else if turnCount >= 2 { enterStateIfNeeded(Scene3State.self) }
+        else if turnCount >= 1 { enterStateIfNeeded(Scene2State.self) }
+    }
     
     private func enterStateIfNeeded(_ stateType: GKState.Type) {
-        // Jika kita sudah berada di state ini, jangan masuk lagi!
-        if let current = stateMachine?.currentState, type(of: current) == stateType {
-            return
-        }
+        if let current = stateMachine?.currentState, type(of: current) == stateType { return }
         stateMachine?.enter(stateType)
     }
     
-    // MARK: Content Tagging (dari file baru)
+    // MARK: - Content Tagging
     
     private func refineChoiceContext(from choice: PlayerChoice) async {
 #if canImport(FoundationModels)
@@ -1235,9 +1289,7 @@ class GameManager: ObservableObject {
             !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !recent.contains(normalizedLine(reply))
         }
-        
         if filtered.isEmpty {
-            // Jika AI nge-blank dan cuma ngasih duplikat, paksa keluarkan kalimat fallback pemutus loop
             let safetyBreakers = [
                 "Just listen to me.",
                 "I can't explain it properly...",
@@ -1245,7 +1297,6 @@ class GameManager: ObservableObject {
             ]
             return [safetyBreakers.randomElement()!]
         }
-        
         return filtered
     }
     
@@ -1265,81 +1316,48 @@ class GameManager: ObservableObject {
 }
 
 // MARK: - Hardware Controllers
+// ─────────────────────────────────────────────────────────────────────────────
 
 class HapticManager {
     static let shared = HapticManager()
     
     func playGlitchHaptic() {
+        guard AppSettings.shared.hapticsEnabled else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.error)
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
     }
     
     func playTypeHaptic() {
+        guard AppSettings.shared.hapticsEnabled else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 }
 
-// MARK: - SwiftUI Native Glitch Layer (dari file baru — tanpa SpriteKit)
-
 // MARK: - SwiftUI Views
+// ─────────────────────────────────────────────────────────────────────────────
 
-struct ContentView: View {
-    @StateObject private var gameManager = GameManager()
-    @State private var isUnlocked = false
-    @Environment(\.scenePhase) var scenePhase
-
-    var body: some View {
-        Group {
-            if isUnlocked {
-                ChatRoomView(gameManager: gameManager)
-            } else {
-                LockScreenView(isUnlocked: $isUnlocked) {
-                    gameManager.triggerInitialLockscreenEvent()
-                }
-            }
-        }
-        // TARUH DI SINI:
-        .onAppear {
-            AudioManager.shared.playBackgroundMusic(filename: "Horror")
-        }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-                    if newPhase == .background {
-                        gameManager.scheduleHorrorNotification() // Alex mulai teror
-                    } else if newPhase == .active {
-                        gameManager.cancelNotifications() // Berhenti jika aplikasi dibuka lagi
-                    }
-                }
-    }
-}
+// MARK: Lock Screen
 
 struct LockScreenView: View {
     @Binding var isUnlocked: Bool
     let onAppearAction: () -> Void
     
-    // State untuk kontrol 8 langkah intro
-    @State private var timeString = "2:13"           // Step 1
-    @State private var showGhostNotifications = true // Step 1
-    @State private var brightnessDim: Double = 0.0    // Step 3
-    @State private var glitchOpacity: Double = 0.0    // Step 5
-    @State private var showAlexNotification = false  // Step 7
-    @State private var canUnlock = false             // Step 8
+    @State private var timeString = "2:13"
+    @State private var showGhostNotifications = true
+    @State private var brightnessDim: Double = 0.0
+    @State private var glitchOpacity: Double = 0.0
+    @State private var showAlexNotification = false
+    @State private var canUnlock = false
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
-            // Background Image/Color (Bisa kamu ganti dengan wallpaper)
             Color(white: 0.1).ignoresSafeArea()
-            
-            // Layer Kecerahan (Step 3: Meredup)
             Color.black.opacity(brightnessDim).ignoresSafeArea()
-            
-            // Layer Glitch Merah (Step 5: Flicker)
             Color.red.opacity(glitchOpacity).ignoresSafeArea()
             
             VStack {
-                // Jam (Step 1 & 4)
                 VStack(spacing: 0) {
                     Text(timeString)
                         .font(.system(size: 80, weight: .thin, design: .rounded))
@@ -1351,18 +1369,16 @@ struct LockScreenView: View {
                 
                 Spacer()
                 
-                // Group Notifikasi Normal (Step 1)
                 if showGhostNotifications {
                     VStack(spacing: 8) {
                         NotificationChip(title: "Instagram", message: "Someone liked your photo")
-                        NotificationChip(title: "WhatsApp", message: "Mom: Are you coming home?")
-                        NotificationChip(title: "System", message: "Storage almost full")
+                        NotificationChip(title: "WhatsApp",  message: "Mom: Are you coming home?")
+                        NotificationChip(title: "System",    message: "Storage almost full")
                     }
                     .transition(.opacity)
                     .padding(.horizontal)
                 }
                 
-                // Notifikasi Alex (Step 7)
                 if showAlexNotification {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -1376,7 +1392,7 @@ struct LockScreenView: View {
                     }
                     .padding()
                     .background(.ultraThinMaterial)
-                    .cornerRadius(0)
+                    .cornerRadius(18)
                     .padding(.horizontal)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
                     .onTapGesture {
@@ -1396,48 +1412,29 @@ struct LockScreenView: View {
                 }
             }
         }
-        .onAppear {
-            runCinematicSequence()
-        }
+        .onAppear { runCinematicSequence() }
     }
     
     func runCinematicSequence() {
-        // STEP 1 & 2: Muncul dengan 2:13 AM + Idle sejenak (2 detik)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeInOut(duration: 2.5)) { brightnessDim = 0.6 }
             
-            // STEP 3: Brightness slightly reduced
-            withAnimation(.easeInOut(duration: 2.5)) {
-                brightnessDim = 0.6
-            }
-            
-            // STEP 4: Time changes 2:13 -> 2:14
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 withAnimation(.none) { timeString = "2:14" }
                 HapticManager.shared.playGlitchHaptic()
-                
-                // STEP 5: Subtle flicker (Glitch)
-                withAnimation(.easeInOut(duration: 0.1)) {
-                    glitchOpacity = 0.4
-                }
+                withAnimation(.easeInOut(duration: 0.1)) { glitchOpacity = 0.4 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     glitchOpacity = 0.0
+                    withAnimation(.easeOut(duration: 0.6)) { showGhostNotifications = false }
                     
-                    // STEP 6: All notifications disappear
-                    withAnimation(.easeOut(duration: 0.6)) {
-                        showGhostNotifications = false
-                    }
-                    
-                    // STEP 7: Alex "are you awake?" appears
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                             showAlexNotification = true
                         }
                         HapticManager.shared.playGlitchHaptic()
-                        
-                        // STEP 8: PlayerChoice (Unlock enabled)
                         canUnlock = true
-                        onAppearAction() // Trigger Scene1State di background
+                        onAppearAction()
                     }
                 }
             }
@@ -1445,10 +1442,11 @@ struct LockScreenView: View {
     }
 }
 
-// Komponen chip notifikasi yang sudah diperbaiki error 'body'-nya
+// MARK: Notification Chip (Lock Screen)
+
 struct NotificationChip: View {
     let title: String
-    let message: String // Gunakan 'message' agar tidak bentrok dengan 'body' milik View
+    let message: String
     
     var body: some View {
         HStack {
@@ -1460,102 +1458,235 @@ struct NotificationChip: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(Color.white.opacity(0.15))
-        .cornerRadius(0)
+        .cornerRadius(14)
     }
 }
-struct ChatRoomView: View {
-    @ObservedObject var gameManager: GameManager
-    @State private var showChoices = false
+
+// MARK: - Content View (Root)
+
+struct ContentView: View {
+    
+    @StateObject private var gameManager = GameManager()
+    @State private var currentScreen: AppScreen = .splash
+    @State private var isUnlocked = false
+    @Environment(\.scenePhase) var scenePhase
     
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottom) {
-                Color.black.ignoresSafeArea()
-                
-                VStack(spacing: 0) {
-                    // 1. HEADER & DEBUG (Sembunyikan saat ending agar sinematik)
-                    if gameManager.currentScene != "ENDING" {
-                        DebugStatusView(
-                            denialScore: gameManager.denialScore,
-                            currentAct: gameManager.currentAct,
-                            currentScene: gameManager.currentScene,
-                            modelStatus: gameManager.modelStatusText
-                        )
-                        .padding(.horizontal)
-                        .padding(.top, 12)
-                    }
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            Group {
+                switch currentScreen {
                     
-                    // 2. CHAT AREA
-                    ScrollView {
-                        ScrollViewReader { proxy in
-                            VStack(spacing: 12) {
-                                ForEach(gameManager.messages) { message in
-                                    MessageBubble(message: message)
+                case .splash:
+                    SplashScreenView {
+                        withAnimation(.easeIn(duration: 0.5)) {
+                            currentScreen = .mainMenu
+                            AudioManager.shared.playBackgroundMusic(filename: "Horror")
+                        }
+                    }
+                    .transition(.opacity)
+                    
+                case .mainMenu:
+                    MainMenuView(
+                        onNewGame: {
+                            GameSaveManager.shared.clearSave()
+                            EvidenceBoardManager.shared.resetFragments()
+                            UnknownContactManager.shared.reset()
+                            withAnimation(.easeIn(duration: 0.4)) { currentScreen = .contentWarning }
+                        },
+                        onContinue: {
+                            GameSaveManager.shared.restore(into: gameManager)
+                            isUnlocked = false
+                            withAnimation(.easeIn(duration: 0.35)) { currentScreen = .game }
+                        }
+                    )
+                    .transition(.opacity)
+                    
+                case .contentWarning:
+                    ContentWarningView {
+                        withAnimation(.easeIn(duration: 0.4)) { currentScreen = .lockscreen }
+                    }
+                    .transition(.opacity)
+                    
+                case .lockscreen:
+                    LockScreenView(isUnlocked: $isUnlocked) {
+                        gameManager.triggerInitialLockscreenEvent()
+                    }
+                    .onChange(of: isUnlocked) { _, unlocked in
+                        if unlocked {
+                            withAnimation(.easeIn(duration: 0.35)) { currentScreen = .game }
+                        }
+                    }
+                    .transition(.opacity)
+                    
+                case .game:
+                    ChatRoomView(gameManager: gameManager) {
+                        gameManager.restartGame()
+                        isUnlocked = false
+                        AudioManager.shared.stopBackgroundMusic()
+                        AudioManager.shared.playBackgroundMusic(filename: "Horror")
+                        withAnimation(.easeIn(duration: 0.5)) { currentScreen = .mainMenu }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            UnknownContactBannerView()
+                .padding(.top, -400)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                GameSaveManager.shared.save(from: gameManager)
+                gameManager.scheduleHorrorNotification()
+            } else if newPhase == .active {
+                gameManager.cancelNotifications()
+            }
+        }
+    }
+}
+
+// MARK: - Chat Room View
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct ChatRoomView: View {
+    @ObservedObject var gameManager: GameManager
+    let onReturnToMenu: () -> Void
+    
+    @State private var showChoices       = false
+    @State private var showTutorial      = false
+    @State private var showActTransition = false
+    @State private var transitionActNumber  = 2
+    @State private var shownActTransitions  = Set<Int>()
+    
+    private var alexStatusText: String {
+        switch gameManager.currentScene {
+        case "ENDING":          return "Connection lost"
+        case "S1", "S2", "S3": return "Active 5 years ago"
+        default:
+            if gameManager.denialScore > 10 { return "Signal corrupted…" }
+            return "Active now"
+        }
+    }
+    
+    private var headerAvatarColor: Color {
+        if gameManager.denialScore >= 12 { return .red    }
+        if gameManager.denialScore >=  7 { return .orange }
+        if gameManager.denialScore <= -7 { return .blue   }
+        return .gray
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            
+            FakeStatusBarView(
+                time:         gameManager.fakeTime,
+                batteryLevel: gameManager.fakeBatteryLevel,
+                denialScore:  gameManager.denialScore
+            )
+            .background(Color.black.ignoresSafeArea(.all, edges: .top))
+            .zIndex(100)
+            
+            NavigationStack {
+                ZStack(alignment: .bottom) {
+                    Color.black.ignoresSafeArea()
+                    
+                    VStack(spacing: 0) {
+                        
+                        // ── 1. DEBUG BAR ─────────────────────────────────────
+                        if AppSettings.shared.debugBarVisible && gameManager.currentScene != "ENDING" {
+                            DebugStatusView(
+                                denialScore:  gameManager.denialScore,
+                                currentAct:   gameManager.currentAct,
+                                currentScene: gameManager.currentScene,
+                                modelStatus:  gameManager.modelStatusText
+                            )
+                            .padding(.horizontal)
+                            .padding(.top, 12)
+                        }
+                        
+                        // ── 2. CHAT SCROLL AREA ──────────────────────────────
+                        ScrollView {
+                            ScrollViewReader { proxy in
+                                VStack(spacing: 12) {
+                                    
+                                    ForEach(gameManager.messages) { message in
+                                        MessageBubbleEnhanced(
+                                            message: message,
+                                            useTypewriter: message == gameManager.messages.last && !message.isFromMe
+                                        )
                                         .id(message.id)
-                                }
-                                
-                                // Indikator Mengetik
-                                if gameManager.isTyping {
-                                    HStack {
-                                        Text("Alex is typing...")
-                                            .font(.caption).foregroundColor(.gray).italic()
-                                        Spacer()
                                     }
-                                    .padding(.horizontal)
-                                    .id("TypingIndicator")
+                                    
+                                    if gameManager.isTyping {
+                                        AlexTypingIndicatorView(
+                                            psycheLevel: gameManager.currentPsycheLevel,
+                                            denialScore: gameManager.denialScore
+                                        )
+                                        .id("TypingIndicator")
+                                    }
+                                    
+                                    // ── 3. ENDING SECTION ────────────────────
+                                    if gameManager.currentScene == "ENDING" && gameManager.isEndingFinished {
+                                        CinematicEndingView(
+                                            gameManager: gameManager,
+                                            onPlayAgain: {
+                                                gameManager.restartGame()
+                                                GameSaveManager.shared.clearSave()
+                                            },
+                                            onReturnToMenu: {
+                                                GameSaveManager.shared.clearSave()
+                                                onReturnToMenu()
+                                            },
+                                            onShare: nil
+                                        )
+                                        .transition(.opacity)
+                                        .zIndex(100)
+                                    }
+                                    
+                                    Color.clear.frame(height: 1).id("bottomAnchor")
                                 }
-                                
-                                // 3. PSYCHOLOGICAL PROFILE (Muncul di paling bawah chat saat tamat)
-                                if gameManager.currentScene == "ENDING" {
-                                    PsychologicalProfileView(profile: gameManager.psychologicalProfile)
-                                        .padding(.vertical, 30)
-                                        .padding(.horizontal)
-                                        .transition(.scale.combined(with: .opacity))
-                                }
-                                
-                                Color.clear
-                                    .frame(height: 1)
-                                    .id("bottomAnchor")
-                            }
-                            // LOGIKA AUTO-SCROLL
-                            .onChange(of: gameManager.messages) { _, _ in
-                                withAnimation(.spring()) {
-                                    proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                                }
-                            }
-                            .onChange(of: gameManager.isTyping) { _, isTyping in
-                                if isTyping {
-                                    withAnimation(.spring()) {
-                                        proxy.scrollTo("TypingIndicator", anchor: .bottom)
+                                .onAppear {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
                                     }
                                 }
-                            }
-                            .onChange(of: gameManager.currentScene) { _, newScene in
-                                if newScene == "ENDING" {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                        withAnimation(.easeOut(duration: 2.0)) {
-                                            proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                                .onChange(of: gameManager.messages) { _, _ in
+                                    withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
+                                }
+                                .onChange(of: gameManager.isTyping) { _, isTyping in
+                                    if isTyping {
+                                        withAnimation(.spring()) { proxy.scrollTo("TypingIndicator", anchor: .bottom) }
+                                    }
+                                }
+                                .onChange(of: gameManager.currentScene) { _, newScene in
+                                    if newScene == "ENDING" {
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                            withAnimation(.easeOut(duration: 2.0)) {
+                                                proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                         .padding(.top, 12)
-                    }
-                    
-                    // 4. INPUT AREA (Hanya muncul jika bukan ending)
-                    if gameManager.currentScene != "ENDING" {
-                        ZStack(alignment: .bottom) {
+                        
+                        // ── 4. INPUT BAR ─────────────────────────────────────
+                        if gameManager.currentScene != "ENDING" {
                             HStack(spacing: 12) {
                                 HStack {
-                                    Text(gameManager.currentChoices.isEmpty ? "Waiting for Alex..." : "Choose a response...")
-                                        .foregroundColor(.gray).font(.body)
+                                    Text(gameManager.currentChoices.isEmpty
+                                         ? "Waiting for Alex…"
+                                         : "Choose a response…")
+                                    .foregroundColor(.gray)
+                                    .font(.body)
                                     Spacer()
                                     Image(systemName: "face.smiling").foregroundColor(.gray)
                                 }
                                 .padding(.horizontal, 16).padding(.vertical, 8)
                                 .background(Color(UIColor.systemGray6))
-                                .cornerRadius(0)
+                                .cornerRadius(20)
                                 .onTapGesture {
                                     if !gameManager.currentChoices.isEmpty {
                                         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -1571,48 +1702,140 @@ struct ChatRoomView: View {
                             .padding(.horizontal).padding(.vertical, 10)
                             .background(.ultraThinMaterial)
                         }
+                        
+                        // ── 5. CHOICE KEYBOARD ───────────────────────────────
+                        if showChoices && !gameManager.currentChoices.isEmpty {
+                            ChoiceKeyboardView(
+                                choices:     gameManager.currentChoices,
+                                denialScore: gameManager.denialScore
+                            ) { choice in
+                                withAnimation {
+                                    showChoices = false
+                                    gameManager.playerMadeChoice(choice)
+                                }
+                            }
+                            .transition(.move(edge: .bottom))
+                            .zIndex(2)
+                        }
                     }
                     
-                    // 5. CHOICE KEYBOARD (Termasuk tombol Restart saat ending)
-                    if (showChoices || gameManager.currentScene == "ENDING") && !gameManager.currentChoices.isEmpty {
-                        ChoiceKeyboardView(
-                            choices: gameManager.currentChoices,
-                            denialScore: gameManager.denialScore
-                        ) { choice in
-                            withAnimation {
-                                showChoices = false
-                                gameManager.playerMadeChoice(choice)
-                            }
-                        }
-                        .transition(.move(edge: .bottom))
-                        .zIndex(2)
+                    // ── 6. MEMORY BLEED OVERLAY ──────────────────────────────
+                    MemoryBleedOverlayView(
+                        denialScore:         gameManager.denialScore,
+                        recentAlexMessages:  gameManager.recentAlexReplies
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(5)
+                    
+                    // ── 7. GLITCH OVERLAY ────────────────────────────────────
+                    GlitchSceneView(
+                        trigger:       gameManager.glitchTrigger,
+                        level:         gameManager.denialLevel,
+                        denialScore:   gameManager.denialScore,
+                        shadowTrigger: gameManager.shadowTrigger,
+                        crackTrigger:  gameManager.crackTrigger
+                    )
+                    .allowsHitTesting(false)
+                    
+                    // ── 8. TUTORIAL OVERLAY ──────────────────────────────────
+                    if showTutorial {
+                        TutorialOverlayView(isVisible: $showTutorial)
+                            .transition(.opacity)
+                            .zIndex(90)
+                    }
+                    
+                    // ── 9. ACT TRANSITION OVERLAY ────────────────────────────
+                    if showActTransition {
+                        ActTransitionView(
+                            actNumber: transitionActNumber,
+                            actTitle:  actTitleName(for: transitionActNumber),
+                            isVisible: $showActTransition
+                        )
+                        .transition(.opacity)
+                        .zIndex(80)
                     }
                 }
-                
-                // 6. VISUAL EFFECTS LAYER
-                GlitchSceneView(
-                    trigger: gameManager.glitchTrigger,
-                    level: gameManager.denialLevel,
-                    denialScore: gameManager.denialScore,
-                    shadowTrigger: gameManager.shadowTrigger,
-                    crackTrigger: gameManager.crackTrigger
-                )
-                .allowsHitTesting(false) // Supaya tidak menghalangi klik tombol
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 2) {
-                        Image(systemName: "person.crop.circle.fill")
-                            .foregroundColor(gameManager.denialScore > 7 ? .red : .gray)
-                        Text("Alex").font(.system(size: 12, weight: .bold)).foregroundColor(.white)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        VStack(spacing: 1) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .foregroundColor(headerAvatarColor)
+                                .font(.system(size: 20))
+                            Text("Alex")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                            Text(alexStatusText)
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HStack(spacing: 12) {
+                            UnknownContactButton()
+                            EvidenceBoardButton()
+                            SignalBarView(denialScore: gameManager.denialScore)
+                        }
+                        .padding(.trailing, 2)
+                    }
+                }
+                .onAppear {
+                    if !AppSettings.shared.hasSeenTutorial {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation(.easeIn(duration: 0.4)) { showTutorial = true }
+                        }
+                    }
+                    resumeAmbientEffectsIfNeeded()
+                }
+                .onChange(of: gameManager.currentAct) { _, newAct in
+                    guard newAct > 1, !shownActTransitions.contains(newAct) else { return }
+                    shownActTransitions.insert(newAct)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        transitionActNumber = newAct
+                        withAnimation { showActTransition = true }
+                    }
+                }
+                .onChange(of: gameManager.shouldQuit) { _, quit in
+                    if quit {
+                        gameManager.shouldQuit = false
+                        GameSaveManager.shared.clearSave()
+                        AudioManager.shared.stopBackgroundMusic()
+                        AudioManager.shared.playBackgroundMusic(filename: "Horror")
+                        onReturnToMenu()
                     }
                 }
             }
         }
+        .checkRealTimeEvent(manager: gameManager)
+        .statusBarHidden(true)
     }
     
-    // MARK: - Subviews
+    // MARK: - Resume Ambient Effects (used on Continue)
+    /// Restores heartbeat and noise overlay when resuming a saved game,
+    /// without requiring new player input.
+    private func resumeAmbientEffectsIfNeeded() {
+        guard !gameManager.messages.isEmpty else { return }
+        
+        // Heartbeat is active during Scene7 and Scene8
+        let heartbeatScenes = ["S7", "S8"]
+        if heartbeatScenes.contains(gameManager.currentScene) {
+            gameManager.startHeartbeat()
+        }
+        // GlitchSceneView handles noise sync via .onAppear using restored denialScore
+    }
+    
+    // MARK: - Helpers
+    
+    private func actTitleName(for act: Int) -> String {
+        switch act {
+        case 2:  "The File"
+        case 3:  "Resolution"
+        default: "First Contact"
+        }
+    }
+    
+    // MARK: - Nested: Psychological Profile Card
     
     struct PsychologicalProfileView: View {
         let profile: (title: String, description: String, color: Color)
@@ -1635,19 +1858,22 @@ struct ChatRoomView: View {
                 Divider().background(Color.white.opacity(0.2))
                 
                 Text("DATA LOG: 18 OCT 2019 - 02:14 AM")
-                    .font(.caption2).foregroundColor(.gray)
+                    .font(.caption2)
+                    .foregroundColor(.gray)
             }
             .padding(24)
             .background(Color.white.opacity(0.05))
-            .cornerRadius(0)
+            .cornerRadius(20)
             .overlay(
-                RoundedRectangle(cornerRadius: 0)
+                RoundedRectangle(cornerRadius: 20)
                     .stroke(profile.color.opacity(0.5), lineWidth: 2)
             )
             .shadow(color: profile.color.opacity(0.2), radius: 15)
         }
     }
 }
+
+// MARK: - Debug Status View
 
 struct DebugStatusView: View {
     let denialScore: Int
@@ -1665,12 +1891,12 @@ struct DebugStatusView: View {
             }
             .padding(12)
         }
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 0))
-        .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.white.opacity(0.14), lineWidth: 1))
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.14), lineWidth: 1))
     }
 }
 
-struct DebugStatChip: View {
+private struct DebugStatChip: View {
     let label: String
     let value: String
     let tint: Color
@@ -1686,120 +1912,24 @@ struct DebugStatChip: View {
     }
 }
 
-// MARK: - Bubbles
-
-struct MessageBubble: View {
-    let message: Message
-    
-    var body: some View {
-        HStack {
-            if message.isFromMe { Spacer() }
-            
-            VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 4) {
-                switch message.type {
-                case .systemAlert:
-                    Text(message.text)
-                        .font(.caption.monospaced())
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .foregroundColor(.red).background(Color.black).opacity(0.45)
-                        .clipShape(RoundedRectangle(cornerRadius: 0))
-                        .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.red, lineWidth: 1))
-                    
-                case .text:
-                    Text(message.text)
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .foregroundColor(message.isFromMe ? .white : .primary)
-                        .background(message.isFromMe ? Color.red.opacity(0.45) : Color(UIColor.secondarySystemBackground))
-                        .clipShape(ChatBubbleShape(isFromMe: message.isFromMe))
-                    
-                case .image(let assetName):
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Menampilkan gambar asli dari Assets (IMG02)
-                        Image(assetName)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 240, height: 180) // Sesuaikan ukuran
-                            .clipped()
-                        
-                        // Menampilkan caption/teks di bawah gambar jika ada
-                        if !message.text.isEmpty {
-                            Text(message.text)
-                                .font(.caption)
-                                .padding(10)
-                                .frame(maxWidth: 240, alignment: .leading)
-                                .background(Color(UIColor.secondarySystemBackground))
-                        }
-                    }
-                    .cornerRadius(12)
-                    
-                case .voiceNote(let id):
-                    HStack {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(message.isFromMe ? .white : .red)
-                        HStack(spacing: 2) {
-                            ForEach(0..<12) { _ in
-                                Capsule()
-                                    .fill(message.isFromMe ? Color.white.opacity(0.8) : Color.gray)
-                                    .frame(width: 3, height: CGFloat.random(in: 6...22))
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                        Text(id).font(.caption)
-                            .foregroundColor(message.isFromMe ? .white : .primary)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(message.isFromMe ? Color.red.opacity(0.45) : Color(UIColor.secondarySystemBackground))
-                    .clipShape(ChatBubbleShape(isFromMe: message.isFromMe))
-                    
-                case .lockedFile(let id):
-                    HStack(spacing: 12) {
-                        Image(systemName: "lock.doc.fill").font(.title2).foregroundColor(.red)
-                        VStack(alignment: .leading) {
-                            Text("Hidden File").font(.subheadline).fontWeight(.bold)
-                            Text(id).font(.caption).foregroundColor(.gray)
-                        }
-                    }
-                    .padding(14)
-                    .background(Color(white: 0.15)).foregroundColor(.white)
-                    .clipShape(ChatBubbleShape(isFromMe: message.isFromMe))
-                    .overlay(ChatBubbleShape(isFromMe: message.isFromMe).stroke(Color.red.opacity(0.5), lineWidth: 1))
-                }
-                
-                if message.type != .systemAlert {
-                    HStack(spacing: 4) {
-                        Text(message.time)
-                        if message.isFromMe {
-                            Image(systemName: message.isRead ? "checkmark.message.fill" : "checkmark.message")
-                                .foregroundColor(message.isRead ? .red : .gray)
-                            
-                        }
-                    }
-                    .font(.caption2).foregroundColor(.white .opacity(0.7))
-                    .padding(message.isFromMe ? .trailing : .leading, 8)
-                }
-            }
-            
-            if !message.isFromMe { Spacer() }
-        }
-        .padding(.horizontal)
-    }
-}
+// MARK: - Chat Bubble Shape
 
 struct ChatBubbleShape: Shape {
     var isFromMe: Bool
     func path(in rect: CGRect) -> Path {
         Path(UIBezierPath(
             roundedRect: rect,
-            byRoundingCorners: isFromMe ? [] : [],
+            byRoundingCorners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight],
             cornerRadii: CGSize(width: 18, height: 18)
         ).cgPath)
     }
 }
 
+// MARK: - Choice Keyboard
+
 struct ChoiceKeyboardView: View {
     let choices: [PlayerChoice]
-    let denialScore: Int // 👈 TAMBAHKAN PENERIMA SKOR
+    let denialScore: Int
     let onSelect: (PlayerChoice) -> Void
     
     var body: some View {
@@ -1810,16 +1940,15 @@ struct ChoiceKeyboardView: View {
             VStack(spacing: 8) {
                 ForEach(choices) { choice in
                     Button(action: { onSelect(choice) }) {
-                        // EFEK ZALGO KE TEKS TOMBOL
                         Text(applyZalgo(to: choice.text, intensity: denialScore))
                             .font(.system(size: 17, weight: .medium))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                             .background(
-                                RoundedRectangle(cornerRadius: 0)
-                                    .fill(choiceColor(for: choice.type))
-                                    .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.3))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
                             )
                             .padding(.horizontal)
                     }
@@ -1829,23 +1958,14 @@ struct ChoiceKeyboardView: View {
         }
         .frame(maxWidth: .infinity)
         .background(Color.red.opacity(0.45))
-        .cornerRadius(0, corners: [.topLeft, .topRight])
+        .cornerRadius(20, corners: [.topLeft, .topRight])
         .shadow(radius: 10)
     }
     
-    private func choiceColor(for type: ChoiceType) -> Color {
-        switch type {
-        case .trust:     return Color.white.opacity(0.3)
-        case .denial:    return Color.white.opacity(0.3)
-        case .avoidance: return Color.white.opacity(0.3)
-        }
-    }
-    
-    // 👇 LOGIKA TEKS KESURUPAN
+    /// Applies Zalgo-style diacritic corruption when denial score exceeds 10.
     private func applyZalgo(to text: String, intensity: Int) -> String {
-        guard intensity > 10 else { return text } // Hanya aktif kalau Denial > 10
+        guard intensity > 10 else { return text }
         
-        // Simbol-simbol aneh (Zalgo)
         let zalgoMarks = [
             "\u{030d}", "\u{030e}", "\u{0304}", "\u{0305}", "\u{033f}", "\u{0311}",
             "\u{0306}", "\u{0310}", "\u{0352}", "\u{0357}", "\u{0351}", "\u{0301}",
@@ -1862,7 +1982,6 @@ struct ChoiceKeyboardView: View {
             result.append(char)
             if char.isWhitespace { continue }
             
-            // Jika skor sangat ekstrem (> 15), teksnya akan sangat hancur
             let marksCount = intensity > 15 ? Int.random(in: 1...3) : Int.random(in: 0...1)
             for _ in 0..<marksCount {
                 if let mark = zalgoMarks.randomElement() {
@@ -1873,6 +1992,8 @@ struct ChoiceKeyboardView: View {
         return result
     }
 }
+
+// MARK: - View Extension: Corner Radius
 
 extension View {
     func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
@@ -1887,6 +2008,8 @@ struct RoundedCorner: Shape {
         Path(UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius)).cgPath)
     }
 }
+
+// MARK: - Preview
 
 #Preview {
     ContentView().preferredColorScheme(.dark)
