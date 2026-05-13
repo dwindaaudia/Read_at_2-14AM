@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 1. SPLASH SCREEN — Fake OS Boot Sequence
+// MARK: SPLASH SCREEN — Fake OS Boot Sequence
 // MARK: ─────────────────────────────────────────────────────────────────────
 
 struct SplashScreenView: View {
@@ -23,7 +23,7 @@ struct SplashScreenView: View {
         BootLine("CHAT_LOG: OCT 18 2019  [PARTIAL]",       color: .gray,   delay: 2.70),
         BootLine("ENCRYPTION: FILE_01.enc  [CORRUPTED]",   color: .gray,   delay: 3.10),
         BootLine("",                                       color: .clear,  delay: 3.30),
-        BootLine("LOADING: READ_AT_0214.app",              color: .white,  delay: 3.70),
+        BootLine("LOADING: READ_AT_02:14.app",              color: .white,  delay: 3.70),
         BootLine("████████████████████  100%",             color: .white,  delay: 4.30),
         BootLine("",                                       color: .clear,  delay: 4.50),
         BootLine("> CONNECTION ESTABLISHED",               color: .green,  delay: 4.90),
@@ -31,8 +31,6 @@ struct SplashScreenView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
-
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(visibleLines) { line in
                     Text(line.text)
@@ -92,7 +90,7 @@ private struct BootLine: Identifiable {
 
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 2. MAIN MENU
+// MARK: MAIN MENU
 // MARK: ─────────────────────────────────────────────────────────────────────
 
 struct MainMenuView: View {
@@ -114,7 +112,11 @@ struct MainMenuView: View {
     var body: some View {
         ZStack {
             // ── Background ─────────────────────────────────────────────────
-            Color.black.ignoresSafeArea()
+            Image("ls_wallpaper")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
+                .opacity(0.5)
 
             // Subtle scanlines overlay
             VStack(spacing: 0) {
@@ -125,83 +127,167 @@ struct MainMenuView: View {
                     Color.clear.frame(height: 14)
                 }
             }
-            .ignoresSafeArea()
             .allowsHitTesting(false)
 
             // ── Content ────────────────────────────────────────────────────
             VStack(spacing: 0) {
-
-                Spacer()
-
-                // Glitch Title
-                ZStack {
-                    // Red chromatic ghost
-                    Text("Read at 2:14 AM")
-                        .font(.system(size: 32, weight: .black))
-                        .foregroundColor(.red.opacity(0.55))
-                        .offset(x: glitchOffsetX + 3, y: 2)
-
-                    // Cyan chromatic ghost
-                    Text("Read at 2:14 AM")
-                        .font(.system(size: 32, weight: .black))
-                        .foregroundColor(.cyan.opacity(0.35))
-                        .offset(x: -glitchOffsetX - 2, y: -2)
-
-                    // Main white title
-                    Text("Read at 2:14 AM")
-                        .font(.system(size: 32, weight: .black))
+                HStack {
+                    Text("Friday 8")
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundColor(.white)
-                }
-                .opacity(titleOpacity)
-
-                Text("A P S Y C H O L O G I C A L  H O R R O R  E X P E R I E N C E")
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                    .foregroundColor(.gray.opacity(0.7))
-                    .tracking(1)
-                    .padding(.top, 10)
+                        .padding(.trailing, 18)
+                    
+                    // Glitch Title
+                    ZStack {
+                        // Red chromatic ghost
+                        Text("2:14")
+                            .font(.system(size: 56, weight: .black))
+                            .foregroundColor(.red.opacity(0.55))
+                            .offset(x: glitchOffsetX + 3, y: 2)
+                        
+                        // Cyan chromatic ghost
+                        Text("2:14")
+                            .font(.system(size: 56, weight: .black))
+                            .foregroundColor(.cyan.opacity(0.35))
+                            .offset(x: -glitchOffsetX - 2, y: -2)
+                        
+                        // Main white title
+                        Text("2:14")
+                            .font(.system(size: 56, weight: .black))
+                            .foregroundColor(.white)
+                    }
                     .opacity(titleOpacity)
-
+                    
+                    Text("Chapter 1")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.leading, 18)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 100)
+                
                 Spacer()
+                
+                // ── Scroll View for Alex Notifications ───────────────────
+                VStack {
+                    HStack {
+                        Text("Notifications")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                        
+                        Spacer()
+                        
+                        Text("Clear All")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 10) {
+                            // Contoh pemanggilan manual
+                            AlexNotificationCard(message: "Are you awake?", time: "02:14 AM")
+                            
+                            AlexNotificationCard(message: "I saw it behind you.", time: "02:14 AM")
+                            
+                            AlexNotificationCard(message: "Run.", time: "02:14 AM")
+                            
+                            // Atau jika menggunakan data array:
+                            /*
+                             ForEach(notifications) { notification in
+                             AlexNotificationCard(message: notification.text, time: notification.time)
+                             }
+                             */
+                        }
+                        .padding(.top, 20)
+                    }
+                    .frame(maxHeight: 350)
+                    .mask(
+                        LinearGradient(gradient: Gradient(colors: [.clear, .black, .black, .clear]), startPoint: .top, endPoint: .bottom)
+                    )
+                }
+                
+                Text("Click the Notification to Play the Game")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.bottom, 50)
 
                 // ── Menu Buttons ───────────────────────────────────────────
-                VStack(spacing: 12) {
-                    if GameSaveManager.shared.hasSave {
-                        MenuButton(title: "CONTINUE", icon: "arrow.right.circle", tint: .green, prominent: true) {
-                            HapticManager.shared.playTypeHaptic()
-                            withAnimation(.easeIn(duration: 0.3)) { buttonsOpacity = 0 }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onContinue() }
-                        }
-                        if let dateStr = GameSaveManager.shared.savedDateString {
-                            Text("Last played: \(dateStr)")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(.gray.opacity(0.5))
-                                .padding(.top, -6)
-                        }
-                    }
-                    MenuButton(title: "NEW GAME", icon: "play.fill", tint: .white, prominent: !GameSaveManager.shared.hasSave) {
-                        HapticManager.shared.playTypeHaptic()
-                        withAnimation(.easeIn(duration: 0.3)) { buttonsOpacity = 0 }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onNewGame() }
-                    }
-                    MenuButton(title: "ACHIEVEMENTS", icon: "trophy", tint: .yellow) {
-                                            HapticManager.shared.playTypeHaptic()
-                                            showAchievements = true
-                                        }
-                    MenuButton(title: "HOW TO PLAY", icon: "questionmark.circle", tint: .gray) {
-                        HapticManager.shared.playTypeHaptic()
-                        showHowToPlay = true
-                    }
-                    MenuButton(title: "SETTINGS", icon: "gearshape", tint: .gray) {
+                HStack() {
+                    
+                    // 1. SETTINGS
+                    Button(action: {
                         HapticManager.shared.playTypeHaptic()
                         showSettings = true
+                    }) {
+                        VStack(spacing: 10) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                            Text("SETTINGS")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                        }
                     }
-                    MenuButton(title: "CREDITS", icon: "person.2", tint: .gray) {
-                        HapticManager.shared.playTypeHaptic()
-                        showCredits = true
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 40)
+                    
+                    // 2. CHAT
+                    // Logika Tukar Tombol: NEW CHAT vs CONTINUE CHAT
+                        if GameSaveManager.shared.hasSave {
+                            // Tampilkan ini jika SUDAH PERNAH main
+                            Button(action: {
+                                HapticManager.shared.playTypeHaptic()
+                                withAnimation(.easeIn(duration: 0.3)) { buttonsOpacity = 0 }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onContinue() }
+                            }) {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "message.fill")
+                                        .font(.system(size: 30))
+                                        .foregroundColor(.white) // Beri warna beda agar pemain sadar ini save-an
+                                    Text("CHAT")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                            }
+                        } else {
+                            // Tampilkan ini jika PLAYER BARU
+                            Button(action: {
+                                HapticManager.shared.playTypeHaptic()
+                                withAnimation(.easeIn(duration: 0.3)) { buttonsOpacity = 0 }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onNewGame() }
+                            }) {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "message.badge.fill") // Ikon berbeda sedikit untuk "New"
+                                        .font(.system(size: 30))
+                                        .foregroundColor(.white)
+                                    Text("CHAT")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                            }
+                        }
+                    
+                    // 3. EVIDENCES FILE
+                    Button(action: {
+                        EvidenceBoardButton()
+                    }) {
+                        VStack(spacing: 10) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                            Text("FILES")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 40)
                 }
-                .opacity(buttonsOpacity)
-                .padding(.horizontal, 36)
+//                .opacity(buttonsOpacity)
+                .tint(Color.red.opacity(0.5))
+                .frame(maxWidth: .infinity, alignment: .bottom)
                 .padding(.bottom, 70)
             }
         }
@@ -212,9 +298,6 @@ struct MainMenuView: View {
         }
         .onDisappear { glitchTimer?.invalidate() }
         .sheet(isPresented: $showSettings)  { SettingsView() }
-        .sheet(isPresented: $showCredits)   { CreditsView() }
-        .sheet(isPresented: $showHowToPlay) { HowToPlayView() }
-        .sheet(isPresented: $showAchievements) { AchievementsView() }
     }
 
     // Irregular glitch bursts on the title
@@ -240,6 +323,55 @@ struct MainMenuView: View {
             t += dur
         }
         HapticManager.shared.playTypeHaptic()
+    }
+}
+
+// ── Alex Notifications ──────────────────────────────────────────────────────
+struct AlexNotificationCard: View {
+    let message: String
+    let time: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 15) {
+            // Ikon Pengirim (Alex)
+            Image(systemName: "person.circle.fill")
+                .resizable()
+                .frame(width: 40, height: 40)
+                .foregroundColor(.white.opacity(0.8))
+                .padding(.top, 5)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("ALEX")
+                        .font(.system(size: 14, weight: .black, design: .monospaced))
+                        .foregroundColor(.red.opacity(0.9))
+                    
+                    Spacer()
+                    
+                    Text(time)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.gray)
+                }
+                
+                Text(message)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(15)
+        .background(
+            // Efek kaca transparan (Glassmorphism)
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.black.opacity(0.4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 25)
+        .padding(.vertical, 5)
     }
 }
 
@@ -284,97 +416,6 @@ private struct MenuButton: View {
 }
 
 
-
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 3. HOW TO PLAY SHEET
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct HowToPlayView: View {
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 32) {
-
-                    // Header
-                    VStack(spacing: 6) {
-                        Text("HOW TO PLAY")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .tracking(4)
-                            .padding(.top, 50)
-
-                        Text("Your choices shape\nAlex's reality.")
-                            .font(.system(size: 26, weight: .black))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    // Choice guide
-                    VStack(spacing: 14) {
-                        ChoiceGuideRow(
-                            color: .blue,
-                            label: "TRUST",
-                            description: "Believe Alex. Help him. Stay grounded in empathy."
-                        )
-                        ChoiceGuideRow(
-                            color: .red,
-                            label: "REJECT",
-                            description: "Deny or fight the truth. Anger and fear as shield."
-                        )
-                        ChoiceGuideRow(
-                            color: .gray,
-                            label: "AVOID",
-                            description: "Hesitate. Look away. Pretend nothing is wrong."
-                        )
-                    }
-                    .padding(.horizontal, 4)
-
-                    Divider().background(Color.white.opacity(0.1))
-
-                    // Story premise
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("THE STORY")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .tracking(3)
-
-                        Text("You receive a message from Alex — a best friend who disappeared five years ago. For you, it's been 1,826 days of silence. For Alex, no time has passed at all.")
-                            .font(.body)
-                            .foregroundColor(.white.opacity(0.8))
-                            .lineSpacing(4)
-
-                        Text("What happened on October 18, 2019 at 2:14 AM?")
-                            .font(.body.italic())
-                            .foregroundColor(.gray)
-                            .padding(.top, 4)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-
-                    Spacer(minLength: 40)
-                }
-                .padding(.horizontal, 28)
-            }
-        }
-        .overlay(
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .padding(16)
-                    .background(Color.white.opacity(0.08), in: Circle())
-            }
-            .padding(16),
-            alignment: .topTrailing
-        )
-    }
-}
-
 private struct ChoiceGuideRow: View {
     let color: Color
     let label: String
@@ -404,201 +445,7 @@ private struct ChoiceGuideRow: View {
 
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 4. CREDITS SHEET
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct CreditsView: View {
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 30) {
-
-                    Text("CREDITS")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.gray)
-                        .tracking(5)
-                        .padding(.top, 50)
-
-                    // Credit blocks
-                    VStack(spacing: 22) {
-                        CreditBlock(role: "GAME DESIGN & DEVELOPMENT",  name: "SHOPEE")
-                        CreditBlock(role: "NARRATIVE & WRITING",        name: "TOKPED")
-                        CreditBlock(role: "VISUAL EFFECTS",             name: "LAZADA")
-                        CreditBlock(role: "SOUND DESIGN & MUSIC",       name: "BLIBLI")
-                    }
-
-                    Divider().background(Color.white.opacity(0.1)).padding(.horizontal, 30)
-
-                    VStack(spacing: 8) {
-                        Text("Powered by Apple FoundationModels")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.gray)
-                        Text("Built with SwiftUI & SpriteKit")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.gray.opacity(0.6))
-                    }
-
-                    VStack(spacing: 6) {
-                        Text("\"Are you awake?\"")
-                            .font(.system(size: 15).italic())
-                            .foregroundColor(.gray.opacity(0.5))
-                        Text("— Alex, 2:14 AM, October 18, 2019")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.gray.opacity(0.3))
-                    }
-                    .padding(.top, 4)
-
-                    Spacer(minLength: 60)
-                }
-                .padding(.horizontal, 28)
-            }
-        }
-        .overlay(
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .padding(16)
-                    .background(Color.white.opacity(0.08), in: Circle())
-            }
-            .padding(16),
-            alignment: .topTrailing
-        )
-    }
-}
-
-private struct CreditBlock: View {
-    let role: String
-    let name: String
-
-    var body: some View {
-        VStack(spacing: 5) {
-            Text(role)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundColor(.gray)
-                .tracking(3)
-            Text(name)
-                .font(.system(size: 19, weight: .bold))
-                .foregroundColor(.white)
-        }
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 5. ACHIEVEMENTS / ENDINGS GALLERY
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct AchievementsView: View {
-    @Environment(\.dismiss) var dismiss
-    @ObservedObject private var settings = AppSettings.shared
-
-    // Data master dari ketiga ending yang ada di dalam game
-    let allEndings: [(title: String, desc: String, color: Color, icon: String)] = [
-        ("THE SAVIOR", "You chose empathy over fear. You remembered Alex when everyone else forgot.", .blue, "heart.fill"),
-        ("THE DENIER", "You fought the truth until the end. Your skepticism is a shield for your own guilt.", .red, "xmark.shield.fill"),
-        ("THE COWARD", "You ran from the truth. Avoidance was your only escape from the 2:14 loop.", .gray, "eye.slash.fill")
-    ]
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 32) {
-                    
-                    // ── Header
-                    VStack(spacing: 6) {
-                        Text("THE ARCHIVES")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .tracking(5)
-                            .padding(.top, 50)
-                        
-                        Text("\(settings.unlockedEndings.count) / 3 ENDINGS UNLOCKED")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-
-                    // ── List of Cards
-                    VStack(spacing: 24) {
-                        ForEach(allEndings, id: \.title) { ending in
-                            let isUnlocked = settings.unlockedEndings.contains(ending.title)
-                            
-                            AchievementCard(
-                                title: ending.title,
-                                description: ending.desc,
-                                color: ending.color,
-                                icon: ending.icon,
-                                isUnlocked: isUnlocked
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 24)
-
-                    Spacer(minLength: 40)
-                }
-            }
-        }
-        .overlay(
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .padding(16)
-                    .background(Color.white.opacity(0.08), in: Circle())
-            }
-            .padding(16),
-            alignment: .topTrailing
-        )
-    }
-}
-
-private struct AchievementCard: View {
-    let title: String
-    let description: String
-    let color: Color
-    let icon: String
-    let isUnlocked: Bool
-
-    var body: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(isUnlocked ? color.opacity(0.12) : Color.white.opacity(0.05))
-                    .frame(width: 50, height: 50)
-                Image(systemName: isUnlocked ? icon : "lock.fill")
-                    .font(.system(size: 22))
-                    .foregroundColor(isUnlocked ? color : .gray.opacity(0.5))
-            }
-
-            Text(isUnlocked ? title : "CLASSIFIED")
-                .font(.system(size: 24, weight: .black))
-                .foregroundColor(isUnlocked ? color : .gray.opacity(0.5))
-                .tracking(isUnlocked ? 0 : 4)
-
-            Text(isUnlocked ? description : "This timeline remains undiscovered. Play again and change your choices.")
-                .font(.system(size: 13))
-                .foregroundColor(isUnlocked ? .white.opacity(0.8) : .gray.opacity(0.4))
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity)
-        .background(Color.white.opacity(isUnlocked ? 0.04 : 0.02))
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isUnlocked ? color.opacity(0.4) : Color.white.opacity(0.05), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 6. SETTINGS SHEET
+// MARK: SETTINGS SHEET
 // MARK: ─────────────────────────────────────────────────────────────────────
 
 struct SettingsView: View {
@@ -609,7 +456,7 @@ struct SettingsView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-
+            
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
 
@@ -801,5 +648,3 @@ private struct SettingsSlider: View {
         }
     }
 }
-
-
