@@ -1,5 +1,5 @@
 import Foundation
-
+// Foundation Model for generating replies and choice
 #if canImport(FoundationModels)
 import FoundationModels
 
@@ -34,6 +34,7 @@ struct AlexResponse {
     var choices: [String]
 }
 
+// Tagging for player emotions and topics because we use .contentTagging model
 @available(iOS 18.0, macOS 15.0, *)
 @Generable
 struct PlayerChoiceTags {

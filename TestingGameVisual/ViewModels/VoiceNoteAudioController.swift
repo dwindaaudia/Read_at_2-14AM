@@ -1,0 +1,65 @@
+import SwiftUI
+import AVFoundation
+import Combine
+
+final class VoiceNoteAudioController: ObservableObject {
+    @Published var isPlaying = false
+    @Published var progress: Double = 0.0
+    @Published var duration: Double = 1.0
+    
+    private var player: AVAudioPlayer?
+    private var timer: Timer?
+    
+    func toggle(filename: String) {
+        if isPlaying { stop() } else { play(filename: filename) }
+    }
+    
+    private func play(filename: String) {
+        let name = filename.replacingOccurrences(of: ".mp3", with: "")
+        guard let url = Bundle.main.url(forResource: name, withExtension: "mp3") else {
+            simulateFallback()
+            return
+        }
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.volume = AppSettings.shared.sfxVolume
+            player?.play()
+            duration = player?.duration ?? 3.0
+            isPlaying = true
+            startTimer()
+        } catch {
+            simulateFallback()
+        }
+    }
+    
+    private func simulateFallback() {
+        duration = 3.0
+        isPlaying = true
+        startTimer()
+    }
+    
+    private func stop() {
+        player?.stop()
+        timer?.invalidate()
+        isPlaying = false
+        progress = 0
+    }
+    
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                // Keep volume in sync with user settings on every tick
+                self.player?.volume = AppSettings.shared.sfxVolume
+                self.progress = min(1.0, self.progress + (0.05 / self.duration))
+                if self.progress >= 1.0 { self.stop() }
+            }
+        }
+    }
+    
+    deinit {
+        timer?.invalidate()
+        player?.stop()
+    }
+}
