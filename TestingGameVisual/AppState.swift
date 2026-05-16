@@ -6,9 +6,7 @@ import Combine
 
 enum AppScreen: Equatable {
     case splash
-    case mainMenu
-    case contentWarning
-    case lockscreen
+    case home
     case game
 }
 
@@ -52,15 +50,10 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Completed runs (used for LLM loop / deja vu context).
     @Published var totalClears: Int {
         didSet {
             UserDefaults.standard.set(totalClears, forKey: "ra214_totalClears")
-        }
-    }
-
-    @Published var unlockedEndings: [String] {
-        didSet {
-            UserDefaults.standard.set(unlockedEndings, forKey: "ra214_unlockedEndings")
         }
     }
 
@@ -74,7 +67,6 @@ final class AppSettings: ObservableObject {
         hasSeenTutorial = ud.object(forKey: "ra214_hasSeenTutorial") as? Bool  ?? false
         debugBarVisible = ud.object(forKey: "ra214_debugBarVisible") as? Bool  ?? false
         totalClears     = ud.object(forKey: "ra214_totalClears")     as? Int   ?? 0
-        unlockedEndings = ud.stringArray(forKey: "ra214_unlockedEndings") ?? []
     }
 
     // MARK: Actions

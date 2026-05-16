@@ -38,6 +38,7 @@ struct SavedGameState: Codable {
         let time: String
         let typeKey: String
         let typePayload: String
+        let isRead: Bool?
     }
     
     struct SavedChoice: Codable {
@@ -58,8 +59,6 @@ final class GameSaveManager {
         guard manager.currentScene != "ENDING",
               !manager.messages.isEmpty else { return }
         
-        UnknownContactManager.shared.saveState()
-        
         let savedMessages = manager.messages.map { msg -> SavedGameState.SavedMessage in
             var typeKey = "text"
             var typePayload = ""
@@ -72,7 +71,8 @@ final class GameSaveManager {
             }
             return SavedGameState.SavedMessage(
                 text: msg.text, isFromMe: msg.isFromMe,
-                time: msg.time, typeKey: typeKey, typePayload: typePayload
+                time: msg.time, typeKey: typeKey, typePayload: typePayload,
+                isRead: msg.isRead
             )
         }
         
@@ -114,7 +114,7 @@ final class GameSaveManager {
               let state = try? JSONDecoder().decode(SavedGameState.self, from: data)
         else { return false }
         
-        UnknownContactManager.shared.restoreState()
+        manager.resetAlexPipelineForRestore()
         
         manager.denialScore       = state.denialScore
         manager.turnCount         = state.turnCount
@@ -140,8 +140,9 @@ final class GameSaveManager {
             case "lockedFile":  type = .lockedFile(saved.typePayload)
             default:            type = .text
             }
+            // Missing `isRead` in older saves: player bubbles default read; Alex inbound defaults unread so the lock-screen feed can show activity after returning.
             return Message(text: saved.text, isFromMe: saved.isFromMe,
-                           time: saved.time, isRead: true, type: type)
+                           time: saved.time, isRead: saved.isRead ?? saved.isFromMe, type: type)
         }
         
         if let savedChoices = state.currentChoices {
@@ -180,12 +181,8 @@ final class GameSaveManager {
             manager.startHeartbeat()
         }
         
-        // Regenerate choices if the player had none when they quit
-        if manager.currentChoices.isEmpty
-            && manager.currentScene != "ENDING"
-            && manager.currentScene != "S5" {
-            Task { await manager.generateAlexReply() }
-        }
+        // Alex continuation after a mid-turn save is started from the home hub via `resumePendingAlexReplyIfNeeded()`
+        // (avoid duplicate `generateAlexReply` tasks vs. the same call on first home appearance).
         
         return true
     }
@@ -207,46 +204,25 @@ final class GameSaveManager {
 }
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 2. TYPEWRITER TEXT
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct TypewriterText: View {
-    let fullText: String
-    var speed: TimeInterval = 0.03
-    
-    @State private var displayed: String = ""
-    @State private var task: Task<Void, Never>? = nil
-    
-    var body: some View {
-        Text(displayed)
-            .onAppear { startTyping() }
-            .onDisappear { task?.cancel() }
-    }
-    
-    private func startTyping() {
-        displayed = ""
-        task?.cancel()
-        task = Task {
-            for char in fullText {
-                if Task.isCancelled { break }
-                await MainActor.run { displayed.append(char) }
-                try? await Task.sleep(nanoseconds: UInt64(speed * 1_000_000_000))
-            }
-        }
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 3. IMAGE LIGHTBOX
+// MARK: 2. IMAGE LIGHTBOX
 // MARK: ─────────────────────────────────────────────────────────────────────
 
 struct ImageLightboxView: View {
     let assetName: String
     let caption: String
+    /// Chat uses sharp corners; evidence log keeps default.
+    var thumbnailCornerRadius: CGFloat = 12
     
     @State private var isExpanded = false
     @State private var scale: CGFloat = 1.0
     @Namespace private var ns
+    private var captionBackground: Color {
+        thumbnailCornerRadius <= 4 ? Color(white: 0.94) : Color(UIColor.secondarySystemBackground)
+    }
+    
+    private var captionForeground: Color {
+        thumbnailCornerRadius <= 4 ? Color.black.opacity(0.78) : Color.primary
+    }
     
     var body: some View {
         ZStack {
@@ -280,12 +256,13 @@ struct ImageLightboxView: View {
             if !caption.isEmpty {
                 Text(caption)
                     .font(.caption)
+                    .foregroundColor(captionForeground)
                     .padding(10)
                     .frame(maxWidth: 240, alignment: .leading)
-                    .background(Color(UIColor.secondarySystemBackground))
+                    .background(captionBackground)
             }
         }
-        .cornerRadius(12)
+        .cornerRadius(thumbnailCornerRadius)
         .onTapGesture {
             withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
                 isExpanded = true
@@ -441,7 +418,7 @@ struct VoiceNotePlayerBubble: View {
             } label: {
                 Image(systemName: controller.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 32))
-                    .foregroundColor(isFromMe ? .white : .red)
+                    .foregroundColor(isFromMe ? .white : Color(red: 0.5, green: 0, blue: 0.02))
             }
             
             VStack(alignment: .leading, spacing: 6) {
@@ -469,26 +446,27 @@ struct VoiceNotePlayerBubble: View {
                 HStack {
                     Text(formattedTime(controller.duration * controller.progress))
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isFromMe ? .white.opacity(0.7) : .gray)
+                        .foregroundColor(isFromMe ? .white.opacity(0.85) : .black.opacity(0.55))
                     Spacer()
                     Text(formattedTime(controller.duration))
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isFromMe ? .white.opacity(0.5) : .gray.opacity(0.6))
+                        .foregroundColor(isFromMe ? .white.opacity(0.65) : .black.opacity(0.45))
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(isFromMe ? Color.red : Color(UIColor.secondarySystemBackground))
-        .clipShape(ChatBubbleShape(isFromMe: isFromMe))
-        .frame(maxWidth: 260)
+        .background(isFromMe ? Color(red: 0.545, green: 0, blue: 0) : Color.white)
+        .clipShape(Rectangle())
+        .frame(maxWidth: 260, alignment: isFromMe ? .trailing : .leading)
+        .fixedSize(horizontal: true, vertical: false)
     }
     
     private func waveColor(isPast: Bool) -> Color {
         if isPast {
-            return isFromMe ? .white.opacity(0.9) : .red
+            return isFromMe ? .white.opacity(0.95) : Color(red: 0.55, green: 0.05, blue: 0.08)
         } else {
-            return isFromMe ? .white.opacity(0.3) : Color.gray.opacity(0.35)
+            return isFromMe ? .white.opacity(0.35) : Color.black.opacity(0.2)
         }
     }
     
@@ -499,532 +477,211 @@ struct VoiceNotePlayerBubble: View {
 }
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 5. EVIDENCE LOG / ARCHIVE
+// MARK: 5. MESSAGE BUBBLE ENHANCED
 // MARK: ─────────────────────────────────────────────────────────────────────
 
-struct EvidenceLogView: View {
-    @ObservedObject var gameManager: GameManager
-    @Environment(\.dismiss) var dismiss
+/// System / ERROR lines: uneven per-character delays (machine “stutter”) before the full line appears.
+fileprivate struct HorrorSystemAlertReveal: View {
+    let fullText: String
     
-    private var evidenceMessages: [Message] {
-        gameManager.messages.filter {
-            switch $0.type {
-            case .image, .voiceNote, .lockedFile: return true
-            default: return false
-            }
-        }
-    }
+    @State private var visible = ""
     
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Text("EVIDENCE LOG")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.gray)
-                        .tracking(4)
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.gray)
-                            .padding(12)
-                            .background(Color.white.opacity(0.08), in: Circle())
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 16)
-                
-                if evidenceMessages.isEmpty {
-                    Spacer()
-                    Text("No evidence collected yet.")
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.5))
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                            ForEach(evidenceMessages) { msg in
-                                EvidenceCard(message: msg)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 32)
-                    }
-                }
+        Text(displayString)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundColor(Color(red: 1, green: 0.45, blue: 0.45))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(Color.black.opacity(0.55))
+            .overlay(Rectangle().stroke(Color.red.opacity(0.55), lineWidth: 1))
+            .task(id: fullText) { await crawlOut() }
+    }
+    
+    private var displayString: String {
+        if visible == fullText { return fullText }
+        return visible + "█"
+    }
+    
+    @MainActor
+    private func crawlOut() async {
+        visible = ""
+        for (idx, ch) in fullText.enumerated() {
+            if Task.isCancelled { return }
+            let base = UInt64.random(in: 28_000_000 ... 110_000_000)
+            try? await Task.sleep(nanoseconds: base)
+            if Task.isCancelled { return }
+            visible.append(ch)
+            if idx % 11 == 10 {
+                HapticManager.shared.playTypeHaptic()
+            }
+            if Double.random(in: 0...1) < 0.22 {
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 70_000_000 ... 190_000_000))
             }
         }
+        visible = fullText
     }
 }
 
-private struct EvidenceCard: View {
+struct MessageBubbleEnhanced: View {
     let message: Message
+    
+    private static let youBubble = Color(red: 0.545, green: 0, blue: 0)
+    private static let bubbleMax: CGFloat = 280
     
     var body: some View {
         Group {
             switch message.type {
-            case .image(let name):
-                ImageEvidenceCard(assetName: name, time: message.time)
-            case .voiceNote(let filename):
-                VoiceEvidenceCard(filename: filename, time: message.time)
-            case .lockedFile(let id):
-                LockedEvidenceCard(fileID: id, time: message.time)
+            case .systemAlert:
+                HorrorSystemAlertReveal(fullText: message.text)
             default:
-                EmptyView()
-            }
-        }
-    }
-}
-
-private struct ImageEvidenceCard: View {
-    let assetName: String
-    let time: String
-    @State private var expanded = false
-    
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Image(assetName)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(height: 160)
-                .clipped()
-                .cornerRadius(10)
-            
-            LinearGradient(colors: [.clear, .black.opacity(0.7)],
-                           startPoint: .center, endPoint: .bottom)
-            .cornerRadius(10)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Image(systemName: "photo.fill")
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.7))
-                Text(time)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-            .padding(8)
-        }
-        .onTapGesture { expanded = true }
-        .fullScreenCover(isPresented: $expanded) {
-            ImageLightboxView(assetName: assetName, caption: "")
-        }
-    }
-}
-
-private struct VoiceEvidenceCard: View {
-    let filename: String
-    let time: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: "waveform")
-                .font(.system(size: 28))
-                .foregroundColor(.red.opacity(0.7))
-            
-            Text(filename.replacingOccurrences(of: ".mp3", with: ""))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white)
-                .lineLimit(1)
-            
-            Text(time)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.gray)
-            
-            VoiceNotePlayerBubble(filename: filename, isFromMe: false)
-                .scaleEffect(0.82, anchor: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, -8)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.06))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.2), lineWidth: 1))
-    }
-}
-
-private struct LockedEvidenceCard: View {
-    let fileID: String
-    let time: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: "lock.doc.fill")
-                .font(.system(size: 28))
-                .foregroundColor(.red.opacity(0.7))
-            
-            Text(fileID)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white)
-                .lineLimit(2)
-            
-            Text(time)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.gray)
-            
-            Text("ENCRYPTED")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(.red)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(Color.red.opacity(0.12))
-                .cornerRadius(4)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.06))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.2), lineWidth: 1))
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 6. CINEMATIC ENDING VIEW
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct CinematicEndingView: View {
-    @ObservedObject var gameManager: GameManager
-    let onPlayAgain: () -> Void
-    let onReturnToMenu: () -> Void
-    let onShare: (() -> Void)?
-    
-    @State private var phase: EndingPhase = .blackout
-    @State private var showShareSheet = false
-    @State private var shareImage: UIImage? = nil
-    
-    enum EndingPhase {
-        case blackout, titleReveal, glitchIn, profileReveal, statsReveal, buttonsReveal
-    }
-    
-    private var profile: (title: String, description: String, color: Color) {
-        gameManager.psychologicalProfile
-    }
-
-    private var stats: (trust: Int, denial: Int, avoidance: Int) {
-        (trust: gameManager.trustCount, denial: gameManager.denialCount, avoidance: gameManager.avoidanceCount)
-    }
-    
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            scanlineBackground
-            
-            if phase == .titleReveal {
-                Text("E N D I N G")
-                    .font(.system(size: 24, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
-                    .tracking(10)
-                    .transition(.opacity)
-            }
-            
-            if phase != .blackout && phase != .titleReveal {
-                VStack(spacing: 0) {
-                    Spacer()
-                    
-                    if phase != .glitchIn {
-                        VStack(spacing: 6) {
-                            Text("SESSION TERMINATED")
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.gray)
-                                .tracking(4)
-                            Text("OCT 18, 2019  ·  02:14 AM")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(.gray.opacity(0.5))
-                        }
-                        .transition(.opacity)
-                        .padding(.bottom, 24)
-                    }
-                    
-                    if phase == .profileReveal || phase == .statsReveal || phase == .buttonsReveal {
-                        profileCard
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.92)),
-                                removal: .opacity
-                            ))
-                            .padding(.horizontal, 28)
-                    }
-                    
-                    if phase == .statsReveal || phase == .buttonsReveal {
-                        statsRow
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                            .padding(.top, 20)
-                            .padding(.horizontal, 28)
-                    }
-                    
-                    Spacer()
-                    
-                    if phase == .buttonsReveal {
-                        buttonsSection
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                            .padding(.horizontal, 28)
-                            .padding(.bottom, 50)
-                    }
+                if message.isFromMe {
+                    outgoingRow
+                } else {
+                    incomingRow
                 }
             }
-            
-            if phase == .glitchIn {
-                Color.white.opacity(0.08).ignoresSafeArea()
-                    .transition(.opacity)
-            }
         }
-        .onAppear { runEndingAnimation() }
-        .sheet(isPresented: $showShareSheet) {
-            if let img = shareImage {
-                ActivityViewRepresentable(items: [img])
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+    
+    @ViewBuilder
+    private var incomingRow: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Alex")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                incomingBubbleContent
+                    .layoutPriority(1)
+                Text(message.time)
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundColor(.white.opacity(0.42))
             }
+            Spacer(minLength: 0)
         }
     }
     
-    private var scanlineBackground: some View {
-        VStack(spacing: 0) {
-            ForEach(0..<60, id: \.self) { i in
-                Color.white.opacity(i % 3 == 0 ? 0.018 : 0).frame(height: 2)
-                Color.clear.frame(height: 12)
+    @ViewBuilder
+    private var outgoingRow: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 12) {
+                Text("You")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                    .fixedSize(horizontal: true, vertical: true)
+                HStack(alignment: .center, spacing: 4) {
+                    readMetaOutgoing
+                    outgoingBubbleContent
+                }
+                .animation(.spring(response: 0.42, dampingFraction: 0.86), value: message.isRead)
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
     }
     
-    private var profileCard: some View {
-        VStack(spacing: 18) {
-            profile.color.opacity(0.8).frame(height: 2).padding(.horizontal, -24)
-            
-            ZStack {
-                Circle()
-                    .fill(profile.color.opacity(0.12))
-                    .frame(width: 64, height: 64)
-                Image(systemName: profileIcon)
-                    .font(.system(size: 28))
-                    .foregroundColor(profile.color)
-            }
-            
-            Text(profile.title)
-                .font(.system(size: 34, weight: .black))
-                .foregroundColor(profile.color)
-                .multilineTextAlignment(.center)
-            
-            profile.color.opacity(0.3).frame(height: 1)
-            
-            Text(profile.description)
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.8))
-                .multilineTextAlignment(.center)
-                .lineSpacing(5)
+    private var readMetaOutgoing: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Text(message.isRead ? "Read" : "Delivered")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+                .contentTransition(.opacity)
+                .multilineTextAlignment(.trailing)
+            Text(message.time)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundColor(.white.opacity(0.65))
+                .multilineTextAlignment(.trailing)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+    
+    @ViewBuilder
+    private var incomingBubbleContent: some View {
+        switch message.type {
+        case .text:
+            Text(message.text)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(.black)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(Rectangle().fill(Color.white))
+                .frame(maxWidth: Self.bubbleMax, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.04))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(profile.color.opacity(0.4), lineWidth: 1.5))
-        )
-        .shadow(color: profile.color.opacity(0.15), radius: 20)
-    }
-    
-    private var profileIcon: String {
-        switch profile.title {
-        case "THE SAVIOR":   return "heart.fill"
-        case "THE DENIER":   return "xmark.shield.fill"
-        case "THE COWARD":   return "eye.slash.fill"
-        default:             return "questionmark.circle.fill"
-        }
-    }
-    
-    private var statsRow: some View {
-        HStack(spacing: 0) {
-            EndingStatBlock(value: "\(stats.trust)",              label: "TRUST",  color: .blue)
-            dividerLine
-            EndingStatBlock(value: "\(stats.denial)",             label: "DENIAL", color: .red)
-            dividerLine
-            EndingStatBlock(value: "\(stats.avoidance)",          label: "AVOID",  color: .gray)
-            dividerLine
-            EndingStatBlock(value: "\(abs(gameManager.denialScore))", label: "PSYCH",  color: profile.color)
-        }
-        .background(Color.white.opacity(0.04))
-        .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
-    }
-    
-    private var dividerLine: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.08))
-            .frame(width: 1)
-            .padding(.vertical, 12)
-    }
-    
-    private var buttonsSection: some View {
-        VStack(spacing: 12) {
-            Button { generateShareAndPresent() } label: {
-                Label("Share Ending", systemImage: "square.and.arrow.up")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(profile.color)
-                    .cornerRadius(14)
-            }
-            
-            Button {
-                HapticManager.shared.playTypeHaptic()
-                onPlayAgain()
-            } label: {
-                Text("Play Again")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(14)
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.2), lineWidth: 1))
-            }
-            
-            Button {
-                HapticManager.shared.playTypeHaptic()
-                onReturnToMenu()
-            } label: {
-                Text("Main Menu")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray)
-            }
-            .padding(.top, 4)
-        }
-    }
-    
-    private func runEndingAnimation() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            withAnimation(.easeIn(duration: 1.5)) { phase = .titleReveal }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            withAnimation(.easeOut(duration: 0.8)) { phase = .blackout }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            withAnimation(.easeIn(duration: 0.3)) { phase = .glitchIn }
-            HapticManager.shared.playGlitchHaptic()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.7) {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.75)) { phase = .profileReveal }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6.9) {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { phase = .statsReveal }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 7.7) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { phase = .buttonsReveal }
-
-            // Unlock current ending and increment clear count
-            let currentTitle = profile.title
-            if !AppSettings.shared.unlockedEndings.contains(currentTitle) {
-                AppSettings.shared.unlockedEndings.append(currentTitle)
-            }
-            AppSettings.shared.totalClears += 1
-        }
-    }
-    
-    private func generateShareAndPresent() {
-        if #available(iOS 16.0, *) {
-            shareImage = renderShareCard(profile: profile)
-        }
-        showShareSheet = true
-    }
-}
-
-private struct EndingStatBlock: View {
-    let value: String
-    let label: String
-    let color: Color
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.system(size: 22, weight: .black, design: .monospaced))
-                .foregroundColor(color)
-            Text(label)
-                .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                .foregroundColor(.gray)
-                .tracking(2)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 7. MESSAGE BUBBLE ENHANCED
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct MessageBubbleEnhanced: View {
-    let message: Message
-    var useTypewriter: Bool = false
-    
-    var body: some View {
-        HStack {
-            if message.isFromMe { Spacer() }
-            
-            VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 4) {
-                switch message.type {
-                    
-                case .systemAlert:
-                    Text(message.text)
-                        .font(.caption.monospaced())
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .foregroundColor(.red).background(Color.black)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red, lineWidth: 1))
-                    
-                case .text:
-                    if useTypewriter && !message.isFromMe {
-                        TypewriterText(fullText: message.text, speed: 0.025)
-                            .padding(.horizontal, 14).padding(.vertical, 10)
-                            .foregroundColor(.primary)
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .clipShape(ChatBubbleShape(isFromMe: false))
-                    } else {
-                        Text(message.text)
-                            .padding(.horizontal, 14).padding(.vertical, 10)
-                            .foregroundColor(message.isFromMe ? .white : .primary)
-                            .background(message.isFromMe ? Color.red.opacity(0.45) : Color(UIColor.secondarySystemBackground))
-                            .clipShape(ChatBubbleShape(isFromMe: message.isFromMe))
+        case .image(let assetName):
+            ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
+        case .voiceNote(let id):
+            VoiceNotePlayerBubble(filename: id, isFromMe: false)
+        case .lockedFile(let id):
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: "lock.doc.fill")
+                        .font(.title3)
+                        .foregroundColor(Color(red: 0.55, green: 0, blue: 0.05))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hidden file")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.black.opacity(0.85))
+                        Text(id)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.black.opacity(0.55))
                     }
-                    
-                case .image(let assetName):
-                    ImageLightboxView(assetName: assetName, caption: message.text)
-                    
-                case .voiceNote(let id):
-                    VoiceNotePlayerBubble(filename: id, isFromMe: message.isFromMe)
-                    
-                case .lockedFile(let id):
-                    HStack(spacing: 12) {
-                        Image(systemName: "lock.doc.fill").font(.title2).foregroundColor(.red)
-                        VStack(alignment: .leading) {
-                            Text("Hidden File").font(.subheadline).fontWeight(.bold)
-                            Text(id).font(.caption).foregroundColor(.gray)
-                        }
-                    }
-                    .padding(14)
-                    .background(Color(white: 0.15)).foregroundColor(.white)
-                    .clipShape(ChatBubbleShape(isFromMe: message.isFromMe))
-                    .overlay(ChatBubbleShape(isFromMe: message.isFromMe).stroke(Color.red.opacity(0.5), lineWidth: 1))
-                }
-                
-                if message.type != .systemAlert {
-                    HStack(spacing: 4) {
-                        Text(message.time)
-                        if message.isFromMe {
-                            Image(systemName: message.isRead ? "checkmark.message.fill" : "checkmark.message")
-                                .foregroundColor(message.isRead ? .red.opacity(0.45) : .gray)
-                        }
-                    }
-                    .font(.caption2).foregroundColor(.white.opacity(0.7))
-                    .padding(message.isFromMe ? .trailing : .leading, 8)
                 }
             }
-            
-            if !message.isFromMe { Spacer() }
+            .padding(14)
+            .frame(maxWidth: Self.bubbleMax, alignment: .leading)
+            .background(Color.white)
+            .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+        default:
+            EmptyView()
         }
-        .padding(.horizontal)
+    }
+    
+    @ViewBuilder
+    private var outgoingBubbleContent: some View {
+        switch message.type {
+        case .text:
+            Text(message.text)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(Rectangle().fill(Self.youBubble))
+                .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        case .image(let assetName):
+            ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
+                .fixedSize(horizontal: true, vertical: false)
+        case .voiceNote(let id):
+            VoiceNotePlayerBubble(filename: id, isFromMe: true)
+        case .lockedFile(let id):
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hidden file")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
+                        Text(id)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.75))
+                    }
+                    Image(systemName: "lock.doc.fill")
+                        .font(.title3)
+                        .foregroundColor(.white.opacity(0.9))
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
+            .background(Self.youBubble.opacity(0.95))
+            .fixedSize(horizontal: true, vertical: false)
+        default:
+            EmptyView()
+        }
     }
 }
 
@@ -1154,506 +811,34 @@ final class EvidenceBoardManager: ObservableObject {
     }
 }
 
-// MARK: - Evidence Board UI
+// MARK: - Evidence Board (toolbar entry → Files screen in NewFeatures.swift)
 
-struct EvidenceBoardView: View {
-    @ObservedObject private var board = EvidenceBoardManager.shared
-    @State private var selectedFragment: EvidenceFragment? = nil
-    @Environment(\.dismiss) var dismiss
-
-    // Fixed cork board positions per fragment index
-    private let layout: [(x: CGFloat, y: CGFloat, rot: Double)] = [
-        (-130, -200, -3.0), (110, -170,  2.5), (-100, -10, -1.5),
-        ( 120,  20,   4.0), (-130, 160, -2.0), ( 100, 175,  3.5),
-        (   0, -90,   1.0)
-    ]
-
-    var body: some View {
-        ZStack {
-            // Cork board texture
-            Color(red: 0.13, green: 0.09, blue: 0.06).ignoresSafeArea()
-            LinearGradient(
-                colors: [.black.opacity(0.0), .black.opacity(0.5)],
-                startPoint: .top, endPoint: .bottom
-            ).ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                // ── Header ───────────────────────────────────────────────────
-                HStack {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark")
-                            .foregroundColor(.white.opacity(0.6))
-                            .padding(12)
-                            .background(Color.white.opacity(0.08), in: Circle())
-                    }
-                    Spacer()
-                    VStack(spacing: 3) {
-                        Text("EVIDENCE BOARD")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .tracking(5).foregroundColor(.white.opacity(0.7))
-                        Text("CASE: ALEX — 18 OCT 2019")
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundColor(.red.opacity(0.7))
-                    }
-                    Spacer()
-                    Text("\(board.unlockedCount)/\(board.fragments.count)")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding(12)
-                }
-                .padding(.horizontal)
-                .padding(.top, 55)
-
-                // ── Board Canvas ─────────────────────────────────────────────
-                ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                    ZStack {
-                        // Red string between unlocked fragments
-                        EvidenceStringView(fragments: board.fragments, layout: layout)
-
-                        // Fragment cards
-                        ForEach(Array(board.fragments.enumerated()), id: \.element.id) { idx, fragment in
-                            let pos = layout[idx % layout.count]
-                            EvidenceCardView(fragment: fragment,
-                                            isNew: board.newFragmentID == fragment.id)
-                                .rotationEffect(.degrees(pos.rot))
-                                .offset(x: pos.x, y: pos.y)
-                                .onTapGesture {
-                                    if fragment.isUnlocked {
-                                        selectedFragment = fragment
-                                        AudioManager.shared.playSound("page_flip")
-                                    } else {
-                                        HapticManager.shared.playGlitchHaptic()
-                                        AudioManager.shared.playSound("static_sfx")
-                                    }
-                                }
-                        }
-                    }
-                    .frame(width: 520, height: 740)
-                    .padding(40)
-                }
-            }
-        }
-        .sheet(item: $selectedFragment) { fragment in
-            FragmentDetailView(fragment: fragment)
-        }
-    }
-}
-
-struct EvidenceCardView: View {
-    let fragment: EvidenceFragment
-    let isNew: Bool
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(fragment.type.rawValue)
-                    .font(.system(size: 7, weight: .black, design: .monospaced))
-                    .tracking(2)
-                    .foregroundColor(fragment.isUnlocked ? typeColor : .gray.opacity(0.3))
-
-                Text(fragment.isUnlocked ? fragment.title : "[ CLASSIFIED ]")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(fragment.isUnlocked ? .black : .gray.opacity(0.4))
-                    .lineLimit(2)
-
-                Text(fragment.isUnlocked
-                     ? String(fragment.content.prefix(55)) + "…"
-                     : "Lanjutkan cerita untuk\nmembuka fragmen ini.")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(fragment.isUnlocked ? .black.opacity(0.65) : .gray.opacity(0.25))
-                    .lineLimit(3)
-            }
-            .padding(12)
-            .frame(width: 145, height: 105)
-            .background(
-                fragment.isUnlocked
-                    ? Color(red: 0.96, green: 0.93, blue: 0.83)
-                    : Color(white: 0.12)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 2))
-            .overlay(
-                RoundedRectangle(cornerRadius: 2)
-                    .stroke(isNew ? Color.red.opacity(0.9) : Color.clear, lineWidth: 2)
-            )
-            .shadow(color: .black.opacity(0.6), radius: 8, x: 3, y: 5)
-
-            // Pin
-            Circle()
-                .fill(fragment.isUnlocked ? Color.red : Color.gray.opacity(0.4))
-                .frame(width: 13, height: 13)
-                .shadow(color: .black.opacity(0.4), radius: 2)
-                .offset(x: -8, y: -4)
-        }
-        .overlay(alignment: .topLeading) {
-            if isNew {
-                Text("NEW")
-                    .font(.system(size: 7, weight: .black))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(Color.red)
-                    .offset(x: 4, y: -16)
-            }
-        }
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: fragment.isUnlocked)
-    }
-
-    private var typeColor: Color {
-        switch fragment.type {
-        case .chatLog:   return .blue
-        case .voiceNote: return .purple
-        case .systemLog: return .red
-        case .photo:     return .green
-        case .callLog:   return .orange
-        }
-    }
-}
-
-struct EvidenceStringView: View {
-    let fragments: [EvidenceFragment]
-    let layout: [(x: CGFloat, y: CGFloat, rot: Double)]
-
-    var body: some View {
-        Canvas { ctx, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let unlocked = fragments.enumerated().filter { $0.element.isUnlocked }
-
-            for i in 0..<(unlocked.count - 1) {
-                let fromIdx = unlocked[i].offset % layout.count
-                let toIdx   = unlocked[i + 1].offset % layout.count
-                let from = CGPoint(x: center.x + layout[fromIdx].x,
-                                   y: center.y + layout[fromIdx].y)
-                let to   = CGPoint(x: center.x + layout[toIdx].x,
-                                   y: center.y + layout[toIdx].y)
-
-                var path = Path()
-                path.move(to: from)
-                path.addCurve(to: to,
-                    control1: CGPoint(x: from.x + (to.x - from.x) * 0.3, y: from.y + 40),
-                    control2: CGPoint(x: from.x + (to.x - from.x) * 0.7, y: to.y - 40))
-                ctx.stroke(path, with: .color(.red.opacity(0.55)), lineWidth: 1)
-            }
-        }
-        .frame(width: 520, height: 740)
-        .allowsHitTesting(false)
-    }
-}
-
-struct FragmentDetailView: View {
-    let fragment: EvidenceFragment
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        ZStack {
-            Color(red: 0.95, green: 0.92, blue: 0.83).ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Spacer()
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark")
-                            .foregroundColor(.black.opacity(0.4)).padding(12)
-                    }
-                }
-                .padding(.top, 50)
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("— \(fragment.type.rawValue) —")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .tracking(3).foregroundColor(.gray)
-
-                        Text(fragment.title)
-                            .font(.system(size: 22, weight: .black, design: .monospaced))
-                            .foregroundColor(.black)
-
-                        Rectangle().fill(Color.black.opacity(0.15)).frame(height: 1)
-
-                        if fragment.type == .photo, let asset = fragment.assetName {
-                            Image(asset)
-                                .resizable().scaledToFit()
-                                .cornerRadius(8)
-                                .padding(.vertical, 8)
-                        } else if fragment.type == .voiceNote, let asset = fragment.assetName {
-                            VoiceNotePlayerBubble(filename: asset, isFromMe: false)
-                                .padding(.vertical, 8)
-                        }
-
-                        Text(fragment.content)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundColor(.black.opacity(0.8))
-                            .lineSpacing(7)
-
-                        Text("CASE FILE: ALEX — OCT 2019")
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundColor(.red.opacity(0.4))
-                            .padding(.top, 30)
-                    }
-                    .padding(32)
-                }
-            }
-        }
-    }
-}
-
-/// Accesses the Evidence Board. Place in the chat toolbar.
 struct EvidenceBoardButton: View {
     @ObservedObject private var board = EvidenceBoardManager.shared
+    @ObservedObject var gameManager: GameManager
     @State private var showBoard = false
 
     var body: some View {
         Button(action: { showBoard = true }) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "paperclip")
+                Image(systemName: "folder.fill")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(.white.opacity(0.9))
                 if board.newFragmentID != nil {
                     Circle().fill(Color.red).frame(width: 9, height: 9)
                         .offset(x: 3, y: -3)
                 }
             }
         }
-        .sheet(isPresented: $showBoard) { EvidenceBoardView() }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showBoard) {
+            FilesEvidenceView(gameManager: gameManager)
+        }
     }
 }
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 9. UNKNOWN CONTACT SYSTEM
-// ─────────────────────────────────────────────────────────────────────────────
-// A second mystery contact (unknown number) that occasionally sends messages
-// once denialScore ≥ 5. They know more than they should.
-// Cannot be replied to. Cannot be called.
-
-struct UnknownMessage: Identifiable, Codable {
-    var id = UUID()
-    let text: String
-}
-
-@MainActor
-final class UnknownContactManager: ObservableObject {
-    static let shared = UnknownContactManager()
-
-    @Published var messages:   [UnknownMessage] = []
-    @Published var hasUnread:  Bool = false
-    @Published var showBanner: Bool = false
-    @Published var bannerText: String = ""
-
-    private let saveKey    = "ra214_unknownMsgs"
-    private let indicesKey = "ra214_unknownIdx"
-
-    // Messages with their minimum denialScore threshold
-    private let pool: [(minDenial: Int, text: String)] = [
-        (5,  "don't trust him"),
-        (5,  "he's still at the bridge"),
-        (5,  "you should have answered"),
-        (8,  "2:14. that's when it happened"),
-        (8,  "he called you first"),
-        (8,  "i was there that night"),
-        (10, "this is a loop. you've done this before"),
-        (10, "he didn't fall. he waited"),
-        (12, "you're the reason he's stuck"),
-        (12, "stop denying. you know what happened"),
-        (15, "he can't leave until YOU remember"),
-        (15, "you missed his call. then you missed him"),
-        (18, "this is the 4,392nd time you've read this"),
-        (18, "YOU ARE NOW IN THE QUEUE"),
-    ]
-    private var usedIndices: Set<Int> = []
-
-    private init() { restoreState() }
-
-    func saveState() {
-        if let d1 = try? JSONEncoder().encode(messages) {
-            UserDefaults.standard.set(d1, forKey: saveKey)
-        }
-        if let d2 = try? JSONEncoder().encode(usedIndices) {
-            UserDefaults.standard.set(d2, forKey: indicesKey)
-        }
-    }
-
-    func restoreState() {
-        if let d1 = UserDefaults.standard.data(forKey: saveKey),
-           let s1 = try? JSONDecoder().decode([UnknownMessage].self, from: d1) {
-            messages = s1
-        }
-        if let d2 = UserDefaults.standard.data(forKey: indicesKey),
-           let s2 = try? JSONDecoder().decode(Set<Int>.self, from: d2) {
-            usedIndices = s2
-        }
-    }
-
-    func checkAndSchedule(denialScore: Int) {
-        guard denialScore >= 5 else { return }
-        let delay = Double.random(in: 20...60)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.fire(denialScore: denialScore)
-        }
-    }
-
-    private func fire(denialScore: Int) {
-        let eligible = pool.enumerated().filter {
-            $0.element.minDenial <= denialScore && !usedIndices.contains($0.offset)
-        }
-        guard let pick = eligible.randomElement() else { return }
-        usedIndices.insert(pick.offset)
-
-        let text = pick.element.text
-
-        bannerText = text
-        withAnimation(.spring(response: 0.4)) { showBanner = true }
-        AudioManager.shared.playSound("notification_sfx")
-        HapticManager.shared.playGlitchHaptic()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
-            withAnimation { self.showBanner = false }
-            self.messages.append(UnknownMessage(text: text))
-            self.hasUnread = true
-            self.saveState()
-        }
-    }
-
-    func markRead() { hasUnread = false }
-
-    func reset() {
-        messages = []; hasUnread = false
-        usedIndices = []; showBanner = false
-    }
-}
-
-// Banner shown at the top of the screen when a message arrives
-struct UnknownContactBannerView: View {
-    @ObservedObject private var manager = UnknownContactManager.shared
-
-    var body: some View {
-        if manager.showBanner {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle().fill(Color.red.opacity(0.15)).frame(width: 42, height: 42)
-                    Text("?")
-                        .font(.system(size: 20, weight: .black, design: .monospaced))
-                        .foregroundColor(.red)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("+62 000-0214")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                    Text(manager.bannerText)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.85))
-                        .lineLimit(1)
-                }
-                Spacer()
-                Text("2:14 AM")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.4))
-            }
-            .padding(14)
-            .background(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.red.opacity(0.35), lineWidth: 1))
-            .cornerRadius(16)
-            .shadow(color: .red.opacity(0.25), radius: 14)
-            .padding(.horizontal, 16)
-            .padding(.top, 58)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .allowsHitTesting(false)
-        }
-    }
-}
-
-// Full message thread for the unknown contact
-struct UnknownContactView: View {
-    @ObservedObject private var manager = UnknownContactManager.shared
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                // Header
-                ZStack {
-                    Color(white: 0.06).ignoresSafeArea(edges: .top)
-                    HStack {
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "chevron.left").foregroundColor(.white)
-                        }
-                        Spacer()
-                        VStack(spacing: 2) {
-                            Text("+62 000-0214")
-                                .font(.headline).foregroundColor(.white)
-                            Text("Tidak Dikenal")
-                                .font(.caption).foregroundColor(.red)
-                        }
-                        Spacer()
-                        Image(systemName: "info.circle").foregroundColor(.white.opacity(0.2))
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 55).padding(.bottom, 12)
-                }
-                .frame(height: 100)
-
-                if manager.messages.isEmpty {
-                    Spacer()
-                    VStack(spacing: 8) {
-                        Image(systemName: "questionmark.bubble")
-                            .font(.system(size: 40)).foregroundColor(.gray.opacity(0.3))
-                        Text("Belum ada pesan.\nTerus bicara dengan Alex.")
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                    }
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(manager.messages) { msg in
-                                HStack {
-                                    Text(msg.text)
-                                        .font(.system(size: 15, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 14).padding(.vertical, 10)
-                                        .background(Color(white: 0.12))
-                                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                                    Spacer()
-                                }
-                                .padding(.horizontal)
-                            }
-
-                            Text("[ KONTAK INI TIDAK BISA MENERIMA PESAN ]")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(.red.opacity(0.4))
-                                .padding(.top, 24)
-                                .padding(.bottom, 40)
-                        }
-                        .padding(.top, 12)
-                    }
-                }
-            }
-        }
-        .onAppear { manager.markRead() }
-    }
-}
-
-/// Accesses the Unknown Contact thread. Place in the chat header.
-struct UnknownContactButton: View {
-    @ObservedObject private var manager = UnknownContactManager.shared
-    @State private var showContact = false
-
-    var body: some View {
-        Button(action: { showContact = true }) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "questionmark.bubble.fill")
-                    .font(.system(size: 18)).foregroundColor(.red.opacity(0.7))
-                if manager.hasUnread {
-                    Circle().fill(Color.red).frame(width: 9, height: 9).offset(x: 3, y: -3)
-                }
-            }
-        }
-        .sheet(isPresented: $showContact) { UnknownContactView() }
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 10. REAL-TIME 2:14 AM EVENT
+// MARK: 9. REAL-TIME 2:14 AM EVENT
 // ─────────────────────────────────────────────────────────────────────────────
 // Meta-horror: the game detects the real device clock.
 // If the player opens the app at exactly 2:14 AM, Alex immediately knows —
@@ -1712,98 +897,41 @@ extension View {
 }
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 11. DYNAMIC TYPING INDICATOR
+// MARK: 11. TYPING INDICATOR (Alex)
 // ─────────────────────────────────────────────────────────────────────────────
-// Alex's typing bubble changes based on psyche/denial level:
-// — Low denial   : slow, melancholic, single dot
-// — Medium       : normal, occasional brief pauses
-// — High         : fast, label text starts to glitch
-// — Extreme      : very fast, red, corrupted Ẕ̵a̵l̵g̵o̸ text
+// White bubble with three dots only — matches Alex text bubbles; hidden when `isTyping` is false.
 
 struct AlexTypingIndicatorView: View {
-    let psycheLevel: PsycheLevel
-    let denialScore: Int
-
-    @State private var dotPhase: [Double] = [0, 0, 0]
-    @State private var labelText: String  = "Alex is typing..."
-    @State private var labelOffset: CGFloat = 0
-    @State private var timer: Timer? = nil
-
-    private var speed: Double {
-        switch psycheLevel {
-        case .low:     return 0.90
-        case .medium:  return 0.55
-        case .high:    return 0.28
-        case .extreme: return 0.12
-        }
-    }
-
-    private var dotColor: Color {
-        switch psycheLevel {
-        case .low, .medium: return .white.opacity(0.6)
-        case .high:         return .red.opacity(0.85)
-        case .extreme:      return .red
-        }
-    }
-
-    private let labelsByLevel: [PsycheLevel: [String]] = [
-        .low:     ["Alex is typing...", "typing...",   "..."],
-        .medium:  ["Alex is typing...", "Alex is thinking...", "Still there..."],
-        .high:    ["s o m e o n e  i s  t y p i n g", "process...", "please wait..."],
-        .extreme: ["Ȃ̸l̷e̵x̶ is near", "SIGNAL CORRUPTED", "D̸̨̬̥͝O̷̧̱̐̾N̸̨̩͝'̶͙̂T̷̨̙̞̉̒ LOOK UP"],
-    ]
-
+    @State private var pulse = false
+    
     var body: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            // Dot group
-            HStack(spacing: 4) {
+        HStack(alignment: .top, spacing: 0) {
+            HStack(spacing: 5) {
                 ForEach(0..<3, id: \.self) { i in
                     Circle()
-                        .fill(dotColor)
-                        .frame(width: 7, height: 7)
-                        .scaleEffect(1.0 + dotPhase[i] * 0.4)
-                        .offset(y: -dotPhase[i] * 4)
+                        .fill(Color.black.opacity(0.42))
+                        .frame(width: 6, height: 6)
+                        .scaleEffect(pulse ? 1.12 : 0.88)
+                        .opacity(pulse ? 1.0 : 0.38)
+                        .animation(
+                            .easeInOut(duration: 0.45)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(i) * 0.16),
+                            value: pulse
+                        )
                 }
             }
-            .padding(.horizontal, 14).padding(.vertical, 11)
-            .background(Color(UIColor.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-
-            // Dynamic label
-            Text(labelText)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4))
-                .offset(x: psycheLevel == .extreme ? labelOffset : 0)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 13)
+            .background(
+                Rectangle()
+                    .fill(Color.white)
+            )
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal)
-        .onAppear { startAnimations() }
-        .onDisappear { timer?.invalidate() }
-    }
-
-    private func startAnimations() {
-        // Dot bounce animation
-        withAnimation(.easeInOut(duration: speed).repeatForever(autoreverses: true)) {
-            dotPhase[0] = 1
-        }
-        withAnimation(.easeInOut(duration: speed).repeatForever(autoreverses: true).delay(speed * 0.33)) {
-            dotPhase[1] = 1
-        }
-        withAnimation(.easeInOut(duration: speed).repeatForever(autoreverses: true).delay(speed * 0.66)) {
-            dotPhase[2] = 1
-        }
-
-        // Rotate label text on a timer
-        let options = labelsByLevel[psycheLevel] ?? ["Alex is typing..."]
-        timer = Timer.scheduledTimer(withTimeInterval: speed * 4.5, repeats: true) { _ in
-            labelText = options.randomElement() ?? "..."
-        }
-
-        // Jittering x-offset for extreme level
-        if psycheLevel == .extreme {
-            Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                labelOffset = CGFloat.random(in: -4...4)
-            }
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .onAppear { pulse = true }
     }
 }
 
@@ -2019,275 +1147,5 @@ struct ActTransitionView: View {
 
     private func romanNumeral(_ n: Int) -> String {
         switch n { case 1: "I"; case 2: "II"; case 3: "III"; default: "\(n)" }
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 15. SIGNAL BAR VIEW
-// ─────────────────────────────────────────────────────────────────────────────
-// Shown in the toolbar. Represents the denial level as a decaying signal.
-
-struct SignalBarView: View {
-    let denialScore: Int
-
-    @State private var glitchAlpha: Double = 1.0
-
-    private var activeBars: Int {
-        if denialScore >= 16 { return 1 }
-        if denialScore >= 10 { return 2 }
-        if denialScore >=  5 { return 3 }
-        return 4
-    }
-
-    private var barColor: Color {
-        if denialScore >= 12 { return .red    }
-        if denialScore >=  7 { return .orange }
-        if denialScore <= -7 { return .blue   }
-        return .green
-    }
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 2.5) {
-            ForEach(0..<4) { i in
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(i < activeBars ? barColor : Color.gray.opacity(0.25))
-                    .frame(width: 4, height: CGFloat(5 + i * 5))
-                    .opacity(i < activeBars && denialScore >= 16 ? glitchAlpha : 1.0)
-            }
-        }
-        .padding(.trailing, 2)
-        .onAppear { startGlitchIfNeeded() }
-        .onChange(of: denialScore) { _, _ in startGlitchIfNeeded() }
-    }
-
-    private func startGlitchIfNeeded() {
-        if denialScore >= 16 {
-            withAnimation(.easeInOut(duration: 0.25).repeatForever(autoreverses: true)) {
-                glitchAlpha = 0.25
-            }
-        } else {
-            withAnimation(.easeOut(duration: 0.2)) { glitchAlpha = 1.0 }
-        }
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 16. ENDING SHARE CARD
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-/// Rendered off-screen to produce a share image via ImageRenderer.
-struct EndingShareCardView: View {
-    let profile: (title: String, description: String, color: Color)
-
-    var body: some View {
-        ZStack {
-            Color.black
-
-            VStack(spacing: 0) {
-
-                // Top accent line
-                profile.color.opacity(0.7)
-                    .frame(height: 3)
-
-                VStack(spacing: 22) {
-
-                    // Game title
-                    VStack(spacing: 4) {
-                        Text("READ AT 2:14 AM")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .tracking(4)
-                        Text("A Psychological Horror Experience")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.gray.opacity(0.5))
-                    }
-                    .padding(.top, 28)
-
-                    // Ending title
-                    Text(profile.title)
-                        .font(.system(size: 38, weight: .black))
-                        .foregroundColor(profile.color)
-                        .multilineTextAlignment(.center)
-
-                    // Divider
-                    profile.color.opacity(0.35).frame(height: 1).padding(.horizontal, 40)
-
-                    // Description
-                    Text(profile.description)
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.75))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(4)
-                        .padding(.horizontal, 24)
-
-                    // Timestamp
-                    Text("OCT 18, 2019  ·  02:14 AM")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.5))
-                        .padding(.bottom, 28)
-                }
-
-                // Bottom accent line
-                profile.color.opacity(0.35).frame(height: 1)
-            }
-        }
-        .frame(width: 320, height: 370)
-        .overlay(
-            RoundedRectangle(cornerRadius: 0)
-                .stroke(profile.color.opacity(0.2), lineWidth: 1)
-        )
-    }
-}
-
-/// Renders the share card to a UIImage for sharing.
-@available(iOS 16.0, *)
-func renderShareCard(profile: (title: String, description: String, color: Color)) -> UIImage? {
-    let renderer = ImageRenderer(content: EndingShareCardView(profile: profile))
-    renderer.scale = 3.0
-    return renderer.uiImage
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 17. UIActivityViewController BRIDGE
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct ActivityViewRepresentable: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 18. FAKE STATUS BAR
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct FakeStatusBarView: View {
-    let time: String
-    let batteryLevel: Double
-    let denialScore: Int
-
-    var body: some View {
-        HStack {
-            Text(time)
-                .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white)
-
-            Spacer()
-
-            HStack(spacing: 4) {
-                Text("\(Int(batteryLevel))%")
-                    .font(.system(size: 12, design: .monospaced))
-
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(Color.white.opacity(0.4), lineWidth: 1)
-                        .frame(width: 20, height: 10)
-
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(batteryLevel < 20 ? Color.red : Color.white)
-                        .frame(width: CGFloat(batteryLevel / 100 * 18), height: 8)
-                        .padding(.leading, 1)
-                }
-            }
-            .foregroundColor(batteryLevel < 20 ? .red : .white)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 4)
-        .background(Color.black.opacity(0.5))
-    }
-}
-
-// MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: 19. CONTENT WARNING
-// MARK: ─────────────────────────────────────────────────────────────────────
-
-struct ContentWarningView: View {
-
-    let onContinue: () -> Void
-
-    @State private var contentOpacity: Double = 0
-    @State private var iconPulse: Bool = false
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                Spacer()
-
-                // Warning icon
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 44))
-                    .foregroundColor(.red.opacity(0.8))
-                    .scaleEffect(iconPulse ? 1.05 : 1.0)
-                    .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: iconPulse)
-                    .onAppear { iconPulse = true }
-                    .padding(.bottom, 24)
-
-                Text("CONTENT WARNING")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundColor(.red.opacity(0.9))
-                    .tracking(3)
-                    .padding(.bottom, 20)
-
-                // Warning items
-                VStack(alignment: .leading, spacing: 10) {
-                    WarningItem(text: "Psychological horror and sustained dread")
-                    WarningItem(text: "Themes of loss, grief, and guilt")
-                    WarningItem(text: "Disturbing imagery and audio")
-                    WarningItem(text: "Flashing lights and visual distortion")
-                }
-                .padding(.bottom, 32)
-
-                // Atmosphere recommendation
-                Text("For maximum immersion:\nPlay alone · at night · with headphones.")
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundColor(.gray)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.bottom, 48)
-
-                // CTA button
-                Button {
-                    HapticManager.shared.playTypeHaptic()
-                    withAnimation(.easeIn(duration: 0.4)) { contentOpacity = 0 }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { onContinue() }
-                } label: {
-                    Text("I UNDERSTAND — ENTER")
-                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.red.opacity(0.18))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.red.opacity(0.4), lineWidth: 1)
-                        )
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal, 40)
-
-                Spacer()
-            }
-            .padding(.horizontal, 30)
-        }
-        .opacity(contentOpacity)
-        .onAppear {
-            withAnimation(.easeIn(duration: 0.7)) { contentOpacity = 1.0 }
-        }
-    }
-}
-
-private struct WarningItem: View {
-    let text: String
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text("·").foregroundColor(.red.opacity(0.7))
-            Text(text).font(.subheadline).foregroundColor(.white.opacity(0.75))
-        }
     }
 }

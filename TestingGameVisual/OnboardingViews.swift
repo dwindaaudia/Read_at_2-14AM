@@ -68,7 +68,7 @@ struct SplashScreenView: View {
             }
         }
 
-        // Fade to MainMenu after last line
+        // Fade to Homescreen after last line
         let fadeStart = (bootScript.last?.delay ?? 5.0) + 1.2
         DispatchQueue.main.asyncAfter(deadline: .now() + fadeStart) {
             withAnimation(.easeIn(duration: 0.9)) { screenOpacity = 0 }
@@ -88,37 +88,73 @@ private struct BootLine: Identifiable {
     }
 }
 
+/// Snapshot of lock-screen notification `ScrollView` geometry for edge fades.
+private struct LockScrollFadeMetrics: Equatable {
+    var offsetY: CGFloat
+    var contentH: CGFloat
+    var visibleH: CGFloat
+    
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        abs(lhs.offsetY - rhs.offsetY) < 0.55
+            && abs(lhs.contentH - rhs.contentH) < 0.55
+            && abs(lhs.visibleH - rhs.visibleH) < 0.55
+    }
+}
 
 // MARK: ─────────────────────────────────────────────────────────────────────
-// MARK: MAIN MENU
+// MARK: HOMESCREEN (Lock screen + main hub)
 // MARK: ─────────────────────────────────────────────────────────────────────
 
-struct MainMenuView: View {
+/// Matches `chatHeaderBarColor` in chat — dark maroon dock, not bright pink-red.
+private let homeScreenDockBarColor = Color(red: 0.11, green: 0.0, blue: 0.02)
 
-    let onNewGame: () -> Void
-    let onContinue: () -> Void
+struct HomescreenView: View {
+    @ObservedObject var gameManager: GameManager
+    @Binding var chatUnlocked: Bool
+    let onOpenChat: () -> Void
 
-    @State private var titleOpacity: Double   = 0
+    @State private var titleOpacity: Double = 0
     @State private var buttonsOpacity: Double = 0
     @State private var glitchOffsetX: CGFloat = 0
-    @State private var showSettings  = false
-    @State private var showCredits   = false
-    @State private var showHowToPlay = false
-    @State private var showAchievements = false
-
-    // Random glitch timer
+    @State private var showSettings = false
+    @State private var showFiles = false
     @State private var glitchTimer: Timer?
+
+    @State private var clockDigits = "2:14"
+    @State private var brightnessDim: Double = 0
+    @State private var glitchFlash: Double = 0
+    @State private var ghostNotifications: [GhostNotification] = []
+    @State private var showAlexNotification = false
+    @State private var introStarted = false
+    @State private var ghostPhaseHidden = true
+    @State private var lockScrollTopFade: Double = 0
+    @State private var lockScrollBottomFade: Double = 0
+
+    private var chapterLabel: String {
+        "Chapter 1"
+    }
+    
+    private var shouldShowNotificationsSection: Bool {
+        if hasReturningFeed { return !lockScreenAlexQueue.isEmpty }
+        if !ghostPhaseHidden { return true }
+        return showAlexNotification
+    }
+    
+    private var showNotificationSectionHeader: Bool {
+        if hasReturningFeed { return !lockScreenAlexQueue.isEmpty }
+        return showAlexNotification
+    }
 
     var body: some View {
         ZStack {
-            // ── Background ─────────────────────────────────────────────────
             Image("ls_wallpaper")
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .ignoresSafeArea()
                 .opacity(0.5)
 
-            // Subtle scanlines overlay
+            Color.black.opacity(brightnessDim).ignoresSafeArea()
+            Color.red.opacity(glitchFlash).ignoresSafeArea().allowsHitTesting(false)
             VStack(spacing: 0) {
                 ForEach(0..<50, id: \.self) { i in
                     Color.white
@@ -129,184 +165,311 @@ struct MainMenuView: View {
             }
             .allowsHitTesting(false)
 
-            // ── Content ────────────────────────────────────────────────────
             VStack(spacing: 0) {
                 HStack {
                     Text("Friday 8")
                         .font(.system(size: 20, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.trailing, 18)
-                    
-                    // Glitch Title
+
                     ZStack {
-                        // Red chromatic ghost
-                        Text("2:14")
+                        Text(clockDigits)
                             .font(.system(size: 56, weight: .black))
                             .foregroundColor(.red.opacity(0.55))
                             .offset(x: glitchOffsetX + 3, y: 2)
-                        
-                        // Cyan chromatic ghost
-                        Text("2:14")
+                        Text(clockDigits)
                             .font(.system(size: 56, weight: .black))
                             .foregroundColor(.cyan.opacity(0.35))
                             .offset(x: -glitchOffsetX - 2, y: -2)
-                        
-                        // Main white title
-                        Text("2:14")
+                        Text(clockDigits)
                             .font(.system(size: 56, weight: .black))
                             .foregroundColor(.white)
                     }
                     .opacity(titleOpacity)
-                    
-                    Text("Chapter 1")
+
+                    Text(chapterLabel)
                         .font(.system(size: 20, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.leading, 18)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 100)
-                
-                Spacer()
-                
-                // ── Scroll View for Alex Notifications ───────────────────
-                VStack {
-                    HStack {
-                        Text("Notifications")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                        
-                        Spacer()
-                        
-                        Text("Clear All")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 10) {
-                            // Contoh pemanggilan manual
-                            AlexNotificationCard(message: "Are you awake?", time: "02:14 AM")
-                            
-                            AlexNotificationCard(message: "I saw it behind you.", time: "02:14 AM")
-                            
-                            AlexNotificationCard(message: "Run.", time: "02:14 AM")
-                            
-                            // Atau jika menggunakan data array:
-                            /*
-                             ForEach(notifications) { notification in
-                             AlexNotificationCard(message: notification.text, time: notification.time)
-                             }
-                             */
-                        }
-                        .padding(.top, 20)
-                    }
-                    .frame(maxHeight: 350)
-                    .mask(
-                        LinearGradient(gradient: Gradient(colors: [.clear, .black, .black, .clear]), startPoint: .top, endPoint: .bottom)
-                    )
-                }
-                
-                Text("Click the Notification to Play the Game")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.5))
-                    .padding(.bottom, 50)
+                .padding(.top, 72)
 
-                // ── Menu Buttons ───────────────────────────────────────────
-                HStack() {
-                    
-                    // 1. SETTINGS
-                    Button(action: {
-                        HapticManager.shared.playTypeHaptic()
-                        showSettings = true
-                    }) {
-                        VStack(spacing: 10) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 30))
-                                .foregroundColor(.white)
-                            Text("SETTINGS")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 40)
-                    
-                    // 2. CHAT
-                    // Logika Tukar Tombol: NEW CHAT vs CONTINUE CHAT
-                        if GameSaveManager.shared.hasSave {
-                            // Tampilkan ini jika SUDAH PERNAH main
-                            Button(action: {
-                                HapticManager.shared.playTypeHaptic()
-                                withAnimation(.easeIn(duration: 0.3)) { buttonsOpacity = 0 }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onContinue() }
-                            }) {
-                                VStack(spacing: 10) {
-                                    Image(systemName: "message.fill")
-                                        .font(.system(size: 30))
-                                        .foregroundColor(.white) // Beri warna beda agar pemain sadar ini save-an
-                                    Text("CHAT")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.white)
+                Spacer()
+
+                if shouldShowNotificationsSection {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if showNotificationSectionHeader {
+                            HStack {
+                                Text("Notifications")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Button("Clear All") {
+                                    clearLockScreenAlexNotifications()
                                 }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.75))
                             }
-                        } else {
-                            // Tampilkan ini jika PLAYER BARU
-                            Button(action: {
-                                HapticManager.shared.playTypeHaptic()
-                                withAnimation(.easeIn(duration: 0.3)) { buttonsOpacity = 0 }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onNewGame() }
-                            }) {
+                            .padding(.horizontal, 20)
+                        }
+
+                        ZStack {
+                            ScrollView(.vertical, showsIndicators: false) {
                                 VStack(spacing: 10) {
-                                    Image(systemName: "message.badge.fill") // Ikon berbeda sedikit untuk "New"
-                                        .font(.system(size: 30))
-                                        .foregroundColor(.white)
-                                    Text("CHAT")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.white)
+                                    if hasReturningFeed {
+                                        ForEach(lockScreenAlexQueue) { row in
+                                            AlexNotificationCard(
+                                                message: row.text,
+                                                time: row.time,
+                                                isInteractive: chatUnlocked,
+                                                onTap: chatUnlocked ? { openChatIfAllowed() } : nil
+                                            )
+                                        }
+                                    } else {
+                                        if !ghostPhaseHidden {
+                                            ForEach(ghostNotifications) { g in
+                                                GhostNotificationRow(title: g.title, message: g.message)
+                                            }
+                                        }
+                                        if showAlexNotification {
+                                            AlexNotificationCard(
+                                                message: "Are you awake?",
+                                                time: "2:14 AM",
+                                                isInteractive: chatUnlocked,
+                                                onTap: chatUnlocked ? { openChatIfAllowed() } : nil
+                                            )
+                                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                                        }
+                                    }
                                 }
+                                .padding(.top, 12)
+                                .padding(.bottom, 8)
                             }
+                            .scrollBounceBehavior(.basedOnSize)
+                            .onScrollGeometryChange(for: LockScrollFadeMetrics.self) { geo in
+                                LockScrollFadeMetrics(
+                                    offsetY: geo.contentOffset.y,
+                                    contentH: geo.contentSize.height,
+                                    visibleH: geo.visibleRect.height
+                                )
+                            } action: { _, metrics in
+                                applyLockScrollEdgeFades(metrics)
+                            }
+                            
+                            VStack(spacing: 0) {
+                                LinearGradient(
+                                    colors: [Color.black.opacity(0.68), Color.black.opacity(0)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 54)
+                                .opacity(lockScrollTopFade)
+                                
+                                Spacer(minLength: 0)
+                                
+                                LinearGradient(
+                                    colors: [Color.black.opacity(0), Color.black.opacity(0.68)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 54)
+                                .opacity(lockScrollBottomFade)
+                            }
+                            .allowsHitTesting(false)
                         }
-                    
-                    // 3. EVIDENCES FILE
-                    Button(action: {
-                        EvidenceBoardButton()
-                    }) {
-                        VStack(spacing: 10) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 30))
-                                .foregroundColor(.white)
-                            Text("FILES")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                        }
+                        .frame(maxHeight: 360)
+                        .clipped()
                     }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 40)
                 }
-//                .opacity(buttonsOpacity)
-                .tint(Color.red.opacity(0.5))
-                .frame(maxWidth: .infinity, alignment: .bottom)
-                .padding(.bottom, 70)
+
+                Spacer(minLength: 12)
+
+                HStack {
+                    homeDockButton(title: "SETTINGS", systemImage: "gearshape.fill") {
+                        showSettings = true
+                    }
+
+                    homeDockButton(title: "CHAT", systemImage: "message.fill", disabled: !chatUnlocked) {
+                        openChatIfAllowed()
+                    }
+                    .opacity(chatUnlocked ? 1 : 0.35)
+
+                    homeDockButton(title: "FILES", systemImage: "folder.fill") {
+                        showFiles = true
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 18)
+                .padding(.bottom, 26)
+                .frame(maxWidth: .infinity)
+                .background {
+                    homeScreenDockBarColor
+                        .ignoresSafeArea(edges: .bottom)
+                }
+                .opacity(buttonsOpacity)
             }
         }
         .onAppear {
-            withAnimation(.easeIn(duration: 1.4))               { titleOpacity   = 1.0 }
-            withAnimation(.easeIn(duration: 1.0).delay(0.9))   { buttonsOpacity = 1.0 }
+            withAnimation(.easeIn(duration: 1.0)) { titleOpacity = 1.0 }
+            withAnimation(.easeIn(duration: 0.8).delay(0.4)) { buttonsOpacity = 1.0 }
             startGlitchLoop()
+            configureHomeOnAppear()
+            gameManager.resumePendingAlexReplyIfNeeded()
+        }
+        .onChange(of: gameManager.messages) { _, _ in
+            if !gameManager.messages.isEmpty { chatUnlocked = true }
         }
         .onDisappear { glitchTimer?.invalidate() }
-        .sheet(isPresented: $showSettings)  { SettingsView() }
+        .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showFiles) {
+            FilesEvidenceView(gameManager: gameManager)
+        }
+    }
+    
+    /// Edge shadows only after the user scrolls away from the “resting” top; no permanent vignette when idle.
+    private func applyLockScrollEdgeFades(_ m: LockScrollFadeMetrics) {
+        guard m.visibleH > 1, m.contentH > 1 else {
+            lockScrollTopFade = 0
+            lockScrollBottomFade = 0
+            return
+        }
+        let overflow = m.contentH - m.visibleH
+        if overflow < 2 {
+            lockScrollTopFade = 0
+            lockScrollBottomFade = 0
+            return
+        }
+        let maxY = max(0, overflow - 1)
+        let y = max(0, m.offsetY)
+        let spaceBelow = max(0, maxY - y)
+        let edge: CGFloat = 8
+        let span: CGFloat = 28
+        if y <= edge {
+            lockScrollTopFade = 0
+        } else {
+            lockScrollTopFade = min(0.92, Double((y - edge) / span))
+        }
+        if spaceBelow <= edge {
+            lockScrollBottomFade = 0
+        } else {
+            lockScrollBottomFade = min(0.92, Double((spaceBelow - edge) / span))
+        }
     }
 
-    // Irregular glitch bursts on the title
+    private func clearLockScreenAlexNotifications() {
+        let ids = Set(lockScreenAlexQueue.map(\.id))
+        guard !ids.isEmpty else { return }
+        gameManager.markAlexMessagesRead(ids: ids)
+        GameSaveManager.shared.save(from: gameManager)
+    }
+
+    private var hasReturningFeed: Bool {
+        GameSaveManager.shared.hasSave || !gameManager.messages.isEmpty
+    }
+    
+    /// Unread inbound Alex rows (same read model as the chat thread: opening chat marks them read).
+    private var lockScreenAlexQueue: [AlexFeedRow] {
+        gameManager.messages.compactMap { msg in
+            guard !msg.isFromMe, !msg.isRead else { return nil }
+            let preview: String?
+            switch msg.type {
+            case .text:
+                let t = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = t.isEmpty ? nil : t
+            case .systemAlert:
+                let t = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = t.isEmpty ? nil : t
+            case .image:
+                let t = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = t.isEmpty ? "Photo" : t
+            case .voiceNote:
+                preview = "Voice message"
+            case .lockedFile:
+                preview = msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "File" : msg.text
+            }
+            guard let preview else { return nil }
+            return AlexFeedRow(id: msg.id, text: preview, time: msg.time)
+        }
+    }
+    
+    private func configureHomeOnAppear() {
+        if hasReturningFeed {
+            clockDigits = "2:14"
+            chatUnlocked = true
+            showAlexNotification = false
+            return
+        }
+        guard !introStarted else { return }
+        introStarted = true
+        clockDigits = "2:13"
+        chatUnlocked = false
+        ghostPhaseHidden = false
+        showAlexNotification = false
+        ghostNotifications = GhostNotification.randomTriple()
+        runNewPlayerIntro()
+    }
+
+    private func runNewPlayerIntro() {
+        // First-time flow: clock flips to 2:14 + glitch → short beat → ghost chats dismiss → pause → Alex notification.
+        let clockAndGlitch: TimeInterval = 5.0
+        let pauseAfterGlitch: TimeInterval = 0.42
+        let pauseBeforeAlex: TimeInterval = 0.72
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + clockAndGlitch) {
+            clockDigits = "2:14"
+            runGlitchBurst()
+            HapticManager.shared.playGlitchHaptic()
+            withAnimation(.easeInOut(duration: 0.1)) { glitchFlash = 0.38 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                glitchFlash = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + pauseAfterGlitch) {
+                withAnimation(.easeOut(duration: 0.48)) {
+                    ghostPhaseHidden = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + pauseBeforeAlex) {
+                    withAnimation(.spring(response: 0.58, dampingFraction: 0.82)) {
+                        showAlexNotification = true
+                    }
+                    AudioManager.shared.playSound("notification_sfx")
+                    HapticManager.shared.playGlitchHaptic()
+                    chatUnlocked = true
+                }
+            }
+        }
+    }
+
+    private func openChatIfAllowed() {
+        guard chatUnlocked else { return }
+        HapticManager.shared.playTypeHaptic()
+        onOpenChat()
+    }
+
+    private func homeDockButton(title: String, systemImage: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: {
+            guard !disabled else { return }
+            HapticManager.shared.playTypeHaptic()
+            action()
+        }) {
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 30))
+                    .foregroundColor(.white)
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .disabled(disabled)
+    }
     private func startGlitchLoop() {
         scheduleNextGlitch()
     }
 
     private func scheduleNextGlitch() {
-        let waitTime = Double.random(in: 3.5...8.0)
+        let waitTime = Double.random(in: 4.0...9.0)
         glitchTimer = Timer.scheduledTimer(withTimeInterval: waitTime, repeats: false) { _ in
             runGlitchBurst()
             scheduleNextGlitch()
@@ -326,123 +489,134 @@ struct MainMenuView: View {
     }
 }
 
-// ── Alex Notifications ──────────────────────────────────────────────────────
 struct AlexNotificationCard: View {
     let message: String
     let time: String
+    var isInteractive: Bool = true
+    var onTap: (() -> Void)? = nil
     
     var body: some View {
+        Group {
+            if let onTap, isInteractive {
+                Button(action: onTap) { cardContent }
+                    .buttonStyle(.plain)
+            } else {
+                cardContent
+            }
+        }
+        .opacity(isInteractive ? 1 : 0.5)
+    }
+    
+    private var cardContent: some View {
         HStack(alignment: .top, spacing: 15) {
-            // Ikon Pengirim (Alex)
-            Image(systemName: "person.circle.fill")
+            Image("alex pp")
                 .resizable()
                 .frame(width: 40, height: 40)
-                .foregroundColor(.white.opacity(0.8))
-                .padding(.top, 5)
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("ALEX")
-                        .font(.system(size: 14, weight: .black, design: .monospaced))
-                        .foregroundColor(.red.opacity(0.9))
+                    Text("Alex")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
                     
                     Spacer()
                     
                     Text(time)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
                 }
                 
                 Text(message)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
+                    .font(.system(size: 16))
+                    .foregroundColor(.white)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(15)
         .background(
-            // Efek kaca transparan (Glassmorphism)
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.black.opacity(0.4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                )
+            Color.red.opacity(0.25)
+        )
+        .overlay(
+            VStack {
+                Rectangle()
+                    .fill(Color.red.opacity(0.5))
+                    .frame(height: 1)
+                
+                Spacer()
+                
+                Rectangle()
+                    .fill(Color.red.opacity(0.5))
+                    .frame(height: 1)
+            }
         )
         .padding(.horizontal, 25)
         .padding(.vertical, 5)
     }
 }
 
-// ── Menu Button ─────────────────────────────────────────────────────────────
+private struct AlexFeedRow: Identifiable {
+    let id: UUID
+    let text: String
+    let time: String
+}
 
-private struct MenuButton: View {
+private struct GhostNotification: Identifiable {
+    let id = UUID()
     let title: String
-    let icon: String
-    let tint: Color
-    var prominent: Bool = false
-    let action: () -> Void
+    let message: String
+
+    static func randomTriple() -> [GhostNotification] {
+        let pool: [(String, String)] = [
+            ("Instagram", "Someone liked your photo."),
+            ("Mail", "Your bank statement is ready."),
+            ("Weather", "Heavy rain expected after midnight."),
+            ("Calendar", "Reminder: Flight check-in opens."),
+            ("News", "Breaking: local tower outage reported."),
+            ("Fitness", "You haven't closed your rings today."),
+            ("Podcasts", "New episode: \"Signals in the Static\"."),
+            ("Maps", "Traffic is lighter than usual."),
+            ("Wallet", "Transaction declined — insufficient funds."),
+            ("Health", "Audio levels were high last night.")
+        ]
+        return pool.shuffled().prefix(3).map { GhostNotification(title: $0.0, message: $0.1) }
+    }
+}
+
+private struct GhostNotificationRow: View {
+    let title: String
+    let message: String
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(prominent ? .black : tint)
-                    .frame(width: 22)
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                    .foregroundColor(prominent ? .black : tint)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(prominent ? .black.opacity(0.5) : tint.opacity(0.35))
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(0.15))
+                .frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Text("2:13 AM")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.45))
+                }
+                Text(message)
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.92))
+                    .lineLimit(2)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 15)
-            .background(
-                prominent
-                ? Color.white
-                : tint.opacity(0.07),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(prominent ? Color.clear : tint.opacity(0.18), lineWidth: 1)
-            )
         }
+        .padding(14)
+        .background(Color.red.opacity(0.22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.red.opacity(0.45), lineWidth: 1)
+        )
+        .padding(.horizontal, 20)
     }
 }
-
-
-private struct ChoiceGuideRow: View {
-    let color: Color
-    let label: String
-    let description: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Text(label)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(color)
-                .frame(width: 52)
-                .padding(.vertical, 6)
-                .background(color.opacity(0.15))
-                .overlay(Capsule().stroke(color.opacity(0.35), lineWidth: 1))
-                .clipShape(Capsule())
-                .padding(.top, 2)
-
-            Text(description)
-                .font(.subheadline)
-                .foregroundColor(.white.opacity(0.8))
-                .lineSpacing(3)
-
-            Spacer()
-        }
-    }
-}
-
 
 // MARK: ─────────────────────────────────────────────────────────────────────
 // MARK: SETTINGS SHEET

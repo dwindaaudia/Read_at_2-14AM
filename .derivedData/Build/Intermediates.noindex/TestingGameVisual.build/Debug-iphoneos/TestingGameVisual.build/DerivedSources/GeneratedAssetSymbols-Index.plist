@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>colors</key>
+	<array/>
+	<key>images</key>
+	<array>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageName_IMG_02</string>
+			<key>relativePath</key>
+			<string>./IMG02.imageset</string>
+			<key>swiftSymbol</key>
+			<string>IMG_02</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameAlexNFriend</string>
+			<key>relativePath</key>
+			<string>./alex n friend.imageset</string>
+			<key>swiftSymbol</key>
+			<string>alexNFriend</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameAlexPp</string>
+			<key>relativePath</key>
+			<string>./alex pp.imageset</string>
+			<key>swiftSymbol</key>
+			<string>alexPp</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameGlassCrack</string>
+			<key>relativePath</key>
+			<string>./glass_crack.imageset</string>
+			<key>swiftSymbol</key>
+			<string>glassCrack</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameLsWallpaper</string>
+			<key>relativePath</key>
+			<string>./ls_wallpaper.imageset</string>
+			<key>swiftSymbol</key>
+			<string>lsWallpaper</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameShadowFace</string>
+			<key>relativePath</key>
+			<string>./shadow_face.imageset</string>
+			<key>swiftSymbol</key>
+			<string>shadowFace</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameStaticNoise</string>
+			<key>relativePath</key>
+			<string>./static_noise.imageset</string>
+			<key>swiftSymbol</key>
+			<string>staticNoise</string>
+		</dict>
+	</array>
+	<key>symbols</key>
+	<array/>
+</dict>
+</plist>

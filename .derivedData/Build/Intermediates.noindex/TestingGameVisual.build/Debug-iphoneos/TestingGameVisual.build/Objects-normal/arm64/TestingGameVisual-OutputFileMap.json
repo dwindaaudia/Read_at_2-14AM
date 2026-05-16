@@ -1,0 +1,89 @@
+{
+  "" : {
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisual-primary.dia",
+    "emit-module-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisual-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisual-primary-emit-module.dia",
+    "pch" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisual-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisual-primary.swiftdeps"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/AppState.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/AppState~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/ContentView.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/GameEnhancements.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GameEnhancements~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/GlitchScene.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/GlitchScene~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/NewFeatures.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/NewFeatures~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/OnboardingViews.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/OnboardingViews~partial.swiftmodule"
+  },
+  "/Users/stefanieagahari/Documents/Alex 2.0/TestingGameVisual/TestingGameVisualApp.swift" : {
+    "const-values" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.swiftconstvalues",
+    "dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.d",
+    "diagnostics" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.dia",
+    "index-unit-output-path" : "/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.o",
+    "llvm-bc" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.bc",
+    "object" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.o",
+    "swift-dependencies" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp.swiftdeps",
+    "swiftmodule" : "/Users/stefanieagahari/Documents/Alex 2.0/.derivedData/Build/Intermediates.noindex/TestingGameVisual.build/Debug-iphoneos/TestingGameVisual.build/Objects-normal/arm64/TestingGameVisualApp~partial.swiftmodule"
+  }
+}

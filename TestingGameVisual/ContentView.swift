@@ -71,7 +71,7 @@ struct Message: Identifiable, Equatable {
     let text: String
     let isFromMe: Bool
     let time: String
-    let isRead: Bool
+    var isRead: Bool
     let type: MessageType
 }
 
@@ -209,12 +209,6 @@ class AudioManager {
 }
 
 // MARK: - Context Enums
-
-enum PlayerEmotionState: String {
-    case hostile = "HOSTILE"
-    case neutral = "NEUTRAL"
-    case trust   = "TRUST"
-}
 
 enum AlexToneState: String {
     case aggressive = "Aggressive"
@@ -775,9 +769,6 @@ class GameManager: ObservableObject {
     @Published var currentAct = 1
     @Published var currentScene = "S1"
     
-    @Published var fakeBatteryLevel: Double = 85.0
-    @Published var fakeTime: String = "2:14"
-
     @Published var trustCount     = 0
     @Published var denialCount    = 0
     @Published var avoidanceCount = 0
@@ -799,11 +790,15 @@ class GameManager: ObservableObject {
     @Published var lastChoiceTags: [String] = []
     @Published var pastChoices: [String] = []
     
+    /// True while the chat room is visible (home hub uses this for unread feed + pending replies).
+    @Published var isPlayerInChat: Bool = false
+    
     // MARK: - Private State
     
     var stateMachine: GKStateMachine?
     private var heartbeatTimer: Timer?
-    private var clockGlitchTimer: Timer?
+    private var alexTypingStartedAt: Date?
+    private var alexConversationTask: Task<Void, Never>?
     
     // MARK: - Heartbeat
     
@@ -837,34 +832,6 @@ class GameManager: ObservableObject {
         heartbeatTimer = nil
     }
     
-    // MARK: - Fake Clock Glitch
-    
-    func startFakeClockLogic() {
-        clockGlitchTimer?.invalidate()
-        clockGlitchTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.randomizeClockGlitch()
-        }
-    }
-    
-    /// Briefly flashes "2:13" when denialScore is high, then snaps back to "2:14".
-    private func randomizeClockGlitch() {
-        if denialScore > 10 && Double.random(in: 0...1) > 0.7 {
-            fakeTime = "2:13"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.fakeTime = "2:14"
-            }
-        }
-    }
-    
-    // MARK: - Fake Battery
-    
-    /// Drains the battery display slightly on each denial choice.
-    func updateFakeBattery(choiceType: ChoiceType) {
-        if choiceType == .denial {
-            fakeBatteryLevel = max(1.0, fakeBatteryLevel - Double.random(in: 2...5))
-        }
-    }
-    
     // MARK: - Computed State
     
     var denialLevel: String {
@@ -878,12 +845,6 @@ class GameManager: ObservableObject {
         if denialScore > 12  { return .extreme }
         if denialScore > 6   { return .high }
         return .medium
-    }
-    
-    var playerEmotion: PlayerEmotionState {
-        if denialScore > 7  { return .hostile }
-        if denialScore < -7 { return .trust }
-        return .neutral
     }
     
     var alexTone: AlexToneState {
@@ -903,19 +864,6 @@ class GameManager: ObservableObject {
     
     var recentAlexReplies: [String] {
         messages.filter { !$0.isFromMe && $0.type == .text }.suffix(3).map(\.text)
-    }
-    
-    var psychologicalProfile: (title: String, description: String, color: Color) {
-        let score = denialScore
-        if score <= -12 {
-            return ("THE SAVIOR", "You chose empathy over fear. You remembered Alex when everyone else forgot.", .blue)
-        } else if score >= 12 {
-            return ("THE DENIER", "You fought the truth until the end. Your skepticism is a shield for your own guilt.", .red)
-        } else if score >= 5 {
-            return ("THE COWARD", "You ran from the truth. Avoidance was your only escape from the 2:14 loop.", .gray)
-        } else {
-            return ("THE LOST SOUL", "You are caught between two worlds, neither believing nor fully letting go.", .purple)
-        }
     }
     
     // MARK: - FoundationModels Session (iOS 18+)
@@ -991,7 +939,6 @@ class GameManager: ObservableObject {
     
     func triggerInitialLockscreenEvent() {
         if messages.isEmpty {
-            startFakeClockLogic()
             stateMachine?.enter(Scene1State.self)
         }
     }
@@ -1001,8 +948,6 @@ class GameManager: ObservableObject {
     func playerMadeChoice(_ choice: PlayerChoice) {
         guard !currentChoices.isEmpty else { return }
         guard currentScene != "ENDING" else { return }
-        
-        updateFakeBattery(choiceType: choice.type)
         
         if choice.text == "Play Again" { restartGame(); return }
         if choice.text == "Quit Game"  { shouldQuit = true; return }
@@ -1019,13 +964,12 @@ class GameManager: ObservableObject {
             denialScore = min(20, max(-20, denialScore + 2))
         }
         
-        messages.append(Message(text: choice.text, isFromMe: true, time: currentTime(), isRead: true, type: .text))
+        messages.append(Message(text: choice.text, isFromMe: true, time: currentTime(), isRead: false, type: .text))
+        let playerBubbleID = messages.last!.id
         
         lastPlayerChoice = choice
         currentPath      = choice.type.rawValue
         currentChoices.removeAll()
-        
-        UnknownContactManager.shared.checkAndSchedule(denialScore: denialScore)
         
         turnCount += 1
         
@@ -1042,20 +986,41 @@ class GameManager: ObservableObject {
             HapticManager.shared.playGlitchHaptic()
         }
         
-        Task {
-            await refineChoiceContext(from: choice)
-            let _ = Task { await generateAlexReply() }
+        alexConversationTask?.cancel()
+        let snapChoice = choice
+        alexConversationTask = Task { @MainActor in
+            async let refineTask = refineChoiceContext(from: snapChoice)
+            
+            try? await Task.sleep(for: .milliseconds(1_450))
+            markPlayerMessageReadIfNeeded(id: playerBubbleID)
+            try? await Task.sleep(for: .milliseconds(420))
+            
+            await refineTask
+            if Task.isCancelled { return }
+            await generateAlexReply()
+        }
+        
+        Task { @MainActor in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
-            if self.currentChoices.isEmpty && !self.isTyping {
-                print("WATCHDOG: Alex got stuck — forcing recovery.")
-                await generateAlexReply()
-            }
+            await alexWatchdogForceGenerateIfStuckAfterChoice()
+        }
+    }
+    
+    /// Alex "opens" the player's bubble: show Read after a short delay (starts as Delivered).
+    private func markPlayerMessageReadIfNeeded(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id && $0.isFromMe }) else { return }
+        guard !messages[idx].isRead else { return }
+        var m = messages[idx]
+        m.isRead = true
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+            messages[idx] = m
         }
     }
     
     // MARK: - Restart
     
     func restartGame() {
+        resetAlexPipelineForRestore()
         messages.removeAll()
         
         denialScore     = 0
@@ -1069,12 +1034,7 @@ class GameManager: ObservableObject {
         shouldQuit          = false
         isEndingFinished    = false
         
-        fakeBatteryLevel = 85.0
-        fakeTime         = "2:14"
-        startFakeClockLogic()
-        
         EvidenceBoardManager.shared.resetFragments()
-        UnknownContactManager.shared.reset()
         
         lastPlayerChoice = nil
         lastChoiceTags   = []
@@ -1116,7 +1076,11 @@ class GameManager: ObservableObject {
         guard let lastPlayerChoice else { return }
         
         isTyping = true
-        defer { isTyping = false }
+        alexTypingStartedAt = Date()
+        defer {
+            isTyping = false
+            alexTypingStartedAt = nil
+        }
         
         let progress = Double(denialScore + 20) / 40.0
         let totalWaitTime = max(2.0, min(6.0, 30.0 * (1.0 - progress)))
@@ -1181,8 +1145,6 @@ class GameManager: ObservableObject {
             finalChoices = fallback.choices
         }
         
-        isTyping = false
-        
         for reply in finalReplies {
             addAlexMessage(reply, type: .text)
             try? await Task.sleep(nanoseconds: 800_000_000)
@@ -1216,7 +1178,58 @@ class GameManager: ObservableObject {
     // MARK: - Helpers
     
     func addAlexMessage(_ text: String, type: MessageType) {
-        messages.append(Message(text: text, isFromMe: false, time: currentTime(), isRead: false, type: type))
+        let read = isPlayerInChat
+        messages.append(Message(text: text, isFromMe: false, time: currentTime(), isRead: read, type: type))
+    }
+    
+    func markAlexInboundMessagesRead() {
+        messages = messages.map { msg in
+            guard !msg.isFromMe, !msg.isRead else { return msg }
+            var m = msg
+            m.isRead = true
+            return m
+        }
+    }
+    
+    func markAlexMessagesRead(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        messages = messages.map { msg in
+            guard ids.contains(msg.id), !msg.isFromMe else { return msg }
+            var m = msg
+            m.isRead = true
+            return m
+        }
+    }
+    
+    func resumePendingAlexReplyIfNeeded() {
+        guard !isPlayerInChat else { return }
+        guard currentScene != "ENDING" else { return }
+        guard lastPlayerChoice != nil else { return }
+        guard currentChoices.isEmpty else { return }
+        guard let last = messages.last, last.isFromMe else { return }
+        guard !isTyping else { return }
+        Task { await self.generateAlexReply() }
+    }
+    
+    func resetAlexPipelineForRestore() {
+        alexConversationTask?.cancel()
+        alexConversationTask = nil
+        isTyping = false
+        alexTypingStartedAt = nil
+    }
+    
+    private func alexWatchdogForceGenerateIfStuckAfterChoice() async {
+        guard currentScene != "ENDING" else { return }
+        guard lastPlayerChoice != nil else { return }
+        guard currentChoices.isEmpty else { return }
+        guard let last = messages.last, last.isFromMe else { return }
+        if isTyping, alexConversationTask == nil {
+            isTyping = false
+            alexTypingStartedAt = nil
+        }
+        guard !isTyping else { return }
+        print("WATCHDOG: Alex got stuck — forcing generateAlexReply()")
+        await generateAlexReply()
     }
     
     func setChoices(_ texts: [String]) {
@@ -1246,8 +1259,6 @@ class GameManager: ObservableObject {
         if let current = stateMachine?.currentState, type(of: current) == stateType { return }
         stateMachine?.enter(stateType)
     }
-    
-    // MARK: - Content Tagging
     
     private func refineChoiceContext(from choice: PlayerChoice) async {
 #if canImport(FoundationModels)
@@ -1334,141 +1345,13 @@ class HapticManager {
     }
 }
 
-// MARK: - SwiftUI Views
-// ─────────────────────────────────────────────────────────────────────────────
-
-// MARK: Lock Screen
-
-struct LockScreenView: View {
-    @Binding var isUnlocked: Bool
-    let onAppearAction: () -> Void
-    
-    @State private var timeString = "2:13"
-    @State private var showGhostNotifications = true
-    @State private var brightnessDim: Double = 0.0
-    @State private var glitchOpacity: Double = 0.0
-    @State private var showAlexNotification = false
-    @State private var canUnlock = false
-    
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            Color(white: 0.1).ignoresSafeArea()
-            Color.black.opacity(brightnessDim).ignoresSafeArea()
-            Color.red.opacity(glitchOpacity).ignoresSafeArea()
-            
-            VStack {
-                VStack(spacing: 0) {
-                    Text(timeString)
-                        .font(.system(size: 80, weight: .thin, design: .rounded))
-                        .foregroundColor(.white)
-                    Text("Friday, October 18")
-                        .font(.headline).foregroundColor(.white.opacity(0.8))
-                }
-                .padding(.top, 40)
-                
-                Spacer()
-                
-                if showGhostNotifications {
-                    VStack(spacing: 8) {
-                        NotificationChip(title: "Instagram", message: "Someone liked your photo")
-                        NotificationChip(title: "WhatsApp",  message: "Mom: Are you coming home?")
-                        NotificationChip(title: "System",    message: "Storage almost full")
-                    }
-                    .transition(.opacity)
-                    .padding(.horizontal)
-                }
-                
-                if showAlexNotification {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "message.fill").foregroundColor(.green)
-                            Text("MESSAGES").font(.caption).fontWeight(.bold).foregroundColor(.gray)
-                            Spacer()
-                            Text("Now").font(.caption).foregroundColor(.gray)
-                        }
-                        Text("Alex").font(.headline).foregroundColor(.white)
-                        Text("Are you awake?").font(.subheadline).foregroundColor(.white.opacity(0.9))
-                    }
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(18)
-                    .padding(.horizontal)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-                    .onTapGesture {
-                        if canUnlock {
-                            HapticManager.shared.playTypeHaptic()
-                            withAnimation(.spring()) { isUnlocked = true }
-                        }
-                    }
-                }
-                
-                Spacer()
-                
-                if canUnlock {
-                    Text("Swipe up or tap notification to open")
-                        .font(.caption).foregroundColor(.white.opacity(0.4))
-                        .padding(.bottom, 30)
-                }
-            }
-        }
-        .onAppear { runCinematicSequence() }
-    }
-    
-    func runCinematicSequence() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeInOut(duration: 2.5)) { brightnessDim = 0.6 }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                withAnimation(.none) { timeString = "2:14" }
-                HapticManager.shared.playGlitchHaptic()
-                withAnimation(.easeInOut(duration: 0.1)) { glitchOpacity = 0.4 }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    glitchOpacity = 0.0
-                    withAnimation(.easeOut(duration: 0.6)) { showGhostNotifications = false }
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                            showAlexNotification = true
-                        }
-                        HapticManager.shared.playGlitchHaptic()
-                        canUnlock = true
-                        onAppearAction()
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: Notification Chip (Lock Screen)
-
-struct NotificationChip: View {
-    let title: String
-    let message: String
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption2).fontWeight(.bold).foregroundColor(.gray)
-                Text(message).font(.subheadline).foregroundColor(.white)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(Color.white.opacity(0.15))
-        .cornerRadius(14)
-    }
-}
-
 // MARK: - Content View (Root)
 
 struct ContentView: View {
     
     @StateObject private var gameManager = GameManager()
     @State private var currentScreen: AppScreen = .splash
-    @State private var isUnlocked = false
+    @State private var homeChatUnlocked = false
     @Environment(\.scenePhase) var scenePhase
     
     var body: some View {
@@ -1480,60 +1363,53 @@ struct ContentView: View {
                     
                 case .splash:
                     SplashScreenView {
+                        if GameSaveManager.shared.hasSave {
+                            GameSaveManager.shared.restore(into: gameManager)
+                            homeChatUnlocked = true
+                        }
                         withAnimation(.easeIn(duration: 0.5)) {
-                            currentScreen = .mainMenu
+                            currentScreen = .home
                             AudioManager.shared.playBackgroundMusic(filename: "Horror")
                         }
                     }
                     .transition(.opacity)
                     
-                case .mainMenu:
-                    MainMenuView(
-                        onNewGame: {
-                            GameSaveManager.shared.clearSave()
-                            EvidenceBoardManager.shared.resetFragments()
-                            UnknownContactManager.shared.reset()
-                            withAnimation(.easeIn(duration: 0.4)) { currentScreen = .contentWarning }
-                        },
-                        onContinue: {
-                            GameSaveManager.shared.restore(into: gameManager)
-                            isUnlocked = false
-                            withAnimation(.easeIn(duration: 0.35)) { currentScreen = .game }
+                case .home:
+                    HomescreenView(
+                        gameManager: gameManager,
+                        chatUnlocked: $homeChatUnlocked,
+                        onOpenChat: {
+                            if gameManager.messages.isEmpty {
+                                gameManager.triggerInitialLockscreenEvent()
+                            }
+                            withAnimation(.easeIn(duration: 0.35)) {
+                                currentScreen = .game
+                            }
                         }
                     )
                     .transition(.opacity)
                     
-                case .contentWarning:
-                    ContentWarningView {
-                        withAnimation(.easeIn(duration: 0.4)) { currentScreen = .lockscreen }
-                    }
-                    .transition(.opacity)
-                    
-                case .lockscreen:
-                    LockScreenView(isUnlocked: $isUnlocked) {
-                        gameManager.triggerInitialLockscreenEvent()
-                    }
-                    .onChange(of: isUnlocked) { _, unlocked in
-                        if unlocked {
-                            withAnimation(.easeIn(duration: 0.35)) { currentScreen = .game }
-                        }
-                    }
-                    .transition(.opacity)
-                    
                 case .game:
                     ChatRoomView(gameManager: gameManager) {
-                        gameManager.restartGame()
-                        isUnlocked = false
-                        AudioManager.shared.stopBackgroundMusic()
-                        AudioManager.shared.playBackgroundMusic(filename: "Horror")
-                        withAnimation(.easeIn(duration: 0.5)) { currentScreen = .mainMenu }
+                        GameSaveManager.shared.save(from: gameManager)
+                        withAnimation(.easeIn(duration: 0.35)) {
+                            currentScreen = .home
+                            homeChatUnlocked = true
+                        }
                     }
                     .transition(.opacity)
                 }
             }
-            UnknownContactBannerView()
-                .padding(.top, -400)
-                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+        .onChange(of: currentScreen) { _, screen in
+            if screen == .game {
+                ChatNavigationBarStyler.applyOpaqueDarkBar()
+            } else {
+                ChatNavigationBarStyler.restoreDefaults()
+            }
+            if screen == .home {
+                gameManager.resumePendingAlexReplyIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
@@ -1541,334 +1417,565 @@ struct ContentView: View {
                 gameManager.scheduleHorrorNotification()
             } else if newPhase == .active {
                 gameManager.cancelNotifications()
+                if currentScreen == .home {
+                    gameManager.resumePendingAlexReplyIfNeeded()
+                }
             }
         }
     }
 }
 
-// MARK: - Chat Room View
-// ─────────────────────────────────────────────────────────────────────────────
+// MARK: - Opaque navigation bar (no system glass) for chat
+
+private enum ChatNavigationBarStyler {
+    static func applyOpaqueDarkBar() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(red: 0.11, green: 0.0, blue: 0.02, alpha: 1.0)
+        appearance.shadowColor = .clear
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.white]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        let nav = UINavigationBar.appearance()
+        nav.standardAppearance = appearance
+        nav.compactAppearance = appearance
+        nav.scrollEdgeAppearance = appearance
+        nav.tintColor = .white
+    }
+    
+    static func restoreDefaults() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        let nav = UINavigationBar.appearance()
+        nav.standardAppearance = appearance
+        nav.compactAppearance = appearance
+        nav.scrollEdgeAppearance = appearance
+        nav.tintColor = nil
+    }
+}
 
 struct ChatRoomView: View {
     @ObservedObject var gameManager: GameManager
     let onReturnToMenu: () -> Void
     
-    @State private var showChoices       = false
+    private enum ChatThreadRow: Identifiable {
+        case chapter(String)
+        case message(Message)
+        
+        var id: String {
+            switch self {
+            case .chapter(let title): return "chapter-\(title)"
+            case .message(let m): return m.id.uuidString
+            }
+        }
+    }
+    
     @State private var showTutorial      = false
     @State private var showActTransition = false
     @State private var transitionActNumber  = 2
     @State private var shownActTransitions  = Set<Int>()
     
+    /// Chapter 1 end-of-build sequence: pause → footer → short “Coming soon” → dismiss (chat stays readable).
+    private enum Chapter1EndingPhase: Equatable {
+        case idle
+        case chapterFooter
+        case comingSoonTeaser
+        case finished
+    }
+    
+    @State private var chapter1EndingPhase: Chapter1EndingPhase = .idle
+    @State private var chapter1EndingRunID: Int = 0
+    @State private var chapter1EndingSequenceLock = false
+    @State private var comingSoonTeaserScale: CGFloat = 0.88
+    @State private var comingSoonTeaserOpacity: Double = 0
+    
+    private let chapter1EndInitialDelay: Duration = .seconds(2.5)
+    private let chapter1EndFooterHold: Duration = .seconds(3.0)
+    private let chapter1EndTeaserHold: Duration = .seconds(2.5)
+    
+    private var chapter1ChatBottomInsetForEnding: CGFloat {
+        guard gameManager.currentScene == "ENDING",
+              gameManager.isEndingFinished,
+              chapter1EndingPhase == .chapterFooter else { return 0 }
+        return 120
+    }
+    
     private var alexStatusText: String {
-        switch gameManager.currentScene {
-        case "ENDING":          return "Connection lost"
-        case "S1", "S2", "S3": return "Active 5 years ago"
-        default:
-            if gameManager.denialScore > 10 { return "Signal corrupted…" }
-            return "Active now"
+        if gameManager.currentScene == "ENDING" { return "Connection lost" }
+        if gameManager.isTyping { return "typing…" }
+        return "Online"
+    }
+    
+    private var chatThreadRows: [ChatThreadRow] {
+        let msgs = gameManager.messages
+        guard !msgs.isEmpty else { return [] }
+        var rows: [ChatThreadRow] = []
+        rows.append(.chapter("Chapter 1"))
+        for m in msgs { rows.append(.message(m)) }
+        return rows
+    }
+    
+    private var chatBackground: some View {
+        Color.black.ignoresSafeArea()
+    }
+    
+    private var showChoiceStrip: Bool {
+        gameManager.currentScene != "ENDING" && !gameManager.currentChoices.isEmpty
+    }
+    
+    private func goHome() {
+        // Before leaving chat, mark the player as away so any in-flight Alex replies stay unread for the home lock feed.
+        gameManager.isPlayerInChat = false
+        GameSaveManager.shared.save(from: gameManager)
+        onReturnToMenu()
+    }
+    
+    private func cancelChapter1EndingSequence(resetPhase: Bool) {
+        chapter1EndingRunID += 1
+        chapter1EndingSequenceLock = false
+        if resetPhase {
+            withAnimation(.easeOut(duration: 0.25)) {
+                chapter1EndingPhase = .idle
+            }
+            comingSoonTeaserScale = 0.88
+            comingSoonTeaserOpacity = 0
         }
     }
     
-    private var headerAvatarColor: Color {
-        if gameManager.denialScore >= 12 { return .red    }
-        if gameManager.denialScore >=  7 { return .orange }
-        if gameManager.denialScore <= -7 { return .blue   }
-        return .gray
+    private func scheduleChapter1EndingSequenceIfNeeded() {
+        guard gameManager.currentScene == "ENDING", gameManager.isEndingFinished else { return }
+        guard chapter1EndingPhase == .idle else { return }
+        guard !chapter1EndingSequenceLock else { return }
+        
+        chapter1EndingSequenceLock = true
+        chapter1EndingRunID += 1
+        let run = chapter1EndingRunID
+        
+        Task { @MainActor in
+            try? await Task.sleep(for: chapter1EndInitialDelay)
+            guard run == chapter1EndingRunID else { return }
+            
+            withAnimation(.easeOut(duration: 0.45)) {
+                chapter1EndingPhase = .chapterFooter
+            }
+            
+            try? await Task.sleep(for: chapter1EndFooterHold)
+            guard run == chapter1EndingRunID else { return }
+            
+            comingSoonTeaserScale = 0.88
+            comingSoonTeaserOpacity = 0
+            withAnimation(.easeInOut(duration: 0.35)) {
+                chapter1EndingPhase = .comingSoonTeaser
+            }
+            
+            try? await Task.sleep(for: .milliseconds(80))
+            guard run == chapter1EndingRunID else { return }
+            withAnimation(.spring(response: 0.52, dampingFraction: 0.82)) {
+                comingSoonTeaserScale = 1.0
+                comingSoonTeaserOpacity = 1.0
+            }
+            
+            try? await Task.sleep(for: chapter1EndTeaserHold)
+            guard run == chapter1EndingRunID else { return }
+            
+            withAnimation(.easeInOut(duration: 0.55)) {
+                chapter1EndingPhase = .finished
+                comingSoonTeaserOpacity = 0
+                comingSoonTeaserScale = 0.94
+            }
+            
+            chapter1EndingSequenceLock = false
+        }
+    }
+    
+    private var chatHeaderBarColor: Color {
+        Color(red: 0.11, green: 0.0, blue: 0.02)
+    }
+    
+    private var chatCustomHeader: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Button {
+                HapticManager.shared.playTypeHaptic()
+                goHome()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            
+            Rectangle()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 1, height: 28)
+                .padding(.horizontal, 8)
+            
+            HStack(spacing: 10) {
+                Image("alex pp")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 36, height: 36)
+                    .clipShape(Rectangle())
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Alex")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                    Text(alexStatusText)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.white.opacity(0.62))
+                }
+                .fixedSize(horizontal: true, vertical: true)
+            }
+            
+            Spacer(minLength: 0)
+            
+            EvidenceBoardButton(gameManager: gameManager)
+                .buttonStyle(.plain)
+                .padding(.trailing, 4)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .background(chatHeaderBarColor)
     }
     
     var body: some View {
+        NavigationStack {
+            chatRoomNavigationContent
+        }
+        .checkRealTimeEvent(manager: gameManager)
+    }
+    
+    @ViewBuilder
+    private var chatRoomNavigationContent: some View {
+        ZStack(alignment: .bottom) {
+            chatBackground
+            chatMainStack
+            chatOverlayStack
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            chatCustomHeader
+        }
+        .onAppear {
+            gameManager.isPlayerInChat = true
+            gameManager.markAlexInboundMessagesRead()
+            if !AppSettings.shared.hasSeenTutorial {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation(.easeIn(duration: 0.4)) { showTutorial = true }
+                }
+            }
+            resumeAmbientEffectsIfNeeded()
+            if gameManager.currentScene == "ENDING", gameManager.isEndingFinished {
+                scheduleChapter1EndingSequenceIfNeeded()
+            }
+        }
+        .onDisappear {
+            gameManager.isPlayerInChat = false
+            if chapter1EndingPhase != .finished {
+                cancelChapter1EndingSequence(resetPhase: true)
+            } else {
+                cancelChapter1EndingSequence(resetPhase: false)
+            }
+        }
+        .onChange(of: gameManager.isEndingFinished) { _, finished in
+            if finished, gameManager.currentScene == "ENDING" {
+                scheduleChapter1EndingSequenceIfNeeded()
+            } else if !finished {
+                cancelChapter1EndingSequence(resetPhase: true)
+            }
+        }
+        .onChange(of: gameManager.currentScene) { _, newScene in
+            if newScene != "ENDING" {
+                cancelChapter1EndingSequence(resetPhase: true)
+            } else if gameManager.isEndingFinished {
+                scheduleChapter1EndingSequenceIfNeeded()
+            }
+        }
+        .onChange(of: gameManager.currentAct) { _, newAct in
+            guard newAct > 1, !shownActTransitions.contains(newAct) else { return }
+            shownActTransitions.insert(newAct)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                transitionActNumber = newAct
+                withAnimation { showActTransition = true }
+            }
+        }
+        .onChange(of: gameManager.shouldQuit) { _, quit in
+            if quit {
+                gameManager.shouldQuit = false
+                GameSaveManager.shared.clearSave()
+                AudioManager.shared.stopBackgroundMusic()
+                AudioManager.shared.playBackgroundMusic(filename: "Horror")
+                onReturnToMenu()
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 40, coordinateSpace: .local)
+                .onEnded { value in
+                    if value.translation.width > 100 && abs(value.translation.height) < 120 {
+                        HapticManager.shared.playTypeHaptic()
+                        goHome()
+                    }
+                }
+        )
+    }
+    
+    @ViewBuilder
+    private var chatMainStack: some View {
         VStack(spacing: 0) {
+            if AppSettings.shared.debugBarVisible && gameManager.currentScene != "ENDING" {
+                DebugStatusView(
+                    denialScore:  gameManager.denialScore,
+                    currentAct:   gameManager.currentAct,
+                    currentScene: gameManager.currentScene,
+                    modelStatus:  gameManager.modelStatusText
+                )
+                .padding(.horizontal)
+                .padding(.top, 8)
+            }
             
-            FakeStatusBarView(
-                time:         gameManager.fakeTime,
-                batteryLevel: gameManager.fakeBatteryLevel,
-                denialScore:  gameManager.denialScore
-            )
-            .background(Color.black.ignoresSafeArea(.all, edges: .top))
-            .zIndex(100)
+            chatMessagesScroll
             
-            NavigationStack {
-                ZStack(alignment: .bottom) {
-                    Color.black.ignoresSafeArea()
-                    
-                    VStack(spacing: 0) {
-                        
-                        // ── 1. DEBUG BAR ─────────────────────────────────────
-                        if AppSettings.shared.debugBarVisible && gameManager.currentScene != "ENDING" {
-                            DebugStatusView(
-                                denialScore:  gameManager.denialScore,
-                                currentAct:   gameManager.currentAct,
-                                currentScene: gameManager.currentScene,
-                                modelStatus:  gameManager.modelStatusText
-                            )
-                            .padding(.horizontal)
-                            .padding(.top, 12)
-                        }
-                        
-                        // ── 2. CHAT SCROLL AREA ──────────────────────────────
-                        ScrollView {
-                            ScrollViewReader { proxy in
-                                VStack(spacing: 12) {
-                                    
-                                    ForEach(gameManager.messages) { message in
-                                        MessageBubbleEnhanced(
-                                            message: message,
-                                            useTypewriter: message == gameManager.messages.last && !message.isFromMe
-                                        )
-                                        .id(message.id)
-                                    }
-                                    
-                                    if gameManager.isTyping {
-                                        AlexTypingIndicatorView(
-                                            psycheLevel: gameManager.currentPsycheLevel,
-                                            denialScore: gameManager.denialScore
-                                        )
-                                        .id("TypingIndicator")
-                                    }
-                                    
-                                    // ── 3. ENDING SECTION ────────────────────
-                                    if gameManager.currentScene == "ENDING" && gameManager.isEndingFinished {
-                                        CinematicEndingView(
-                                            gameManager: gameManager,
-                                            onPlayAgain: {
-                                                gameManager.restartGame()
-                                                GameSaveManager.shared.clearSave()
-                                            },
-                                            onReturnToMenu: {
-                                                GameSaveManager.shared.clearSave()
-                                                onReturnToMenu()
-                                            },
-                                            onShare: nil
-                                        )
-                                        .transition(.opacity)
-                                        .zIndex(100)
-                                    }
-                                    
-                                    Color.clear.frame(height: 1).id("bottomAnchor")
-                                }
-                                .onAppear {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                                    }
-                                }
-                                .onChange(of: gameManager.messages) { _, _ in
-                                    withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
-                                }
-                                .onChange(of: gameManager.isTyping) { _, isTyping in
-                                    if isTyping {
-                                        withAnimation(.spring()) { proxy.scrollTo("TypingIndicator", anchor: .bottom) }
-                                    }
-                                }
-                                .onChange(of: gameManager.currentScene) { _, newScene in
-                                    if newScene == "ENDING" {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                            withAnimation(.easeOut(duration: 2.0)) {
-                                                proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                                            }
-                                        }
-                                    }
-                                }
+            if gameManager.currentScene != "ENDING" {
+                VStack(spacing: showChoiceStrip ? 8 : 0) {
+                    if showChoiceStrip {
+                        ChoiceKeyboardView(
+                            choices:     gameManager.currentChoices,
+                            denialScore: gameManager.denialScore
+                        ) { choice in
+                            withAnimation {
+                                gameManager.playerMadeChoice(choice)
                             }
                         }
-                        .padding(.top, 12)
-                        
-                        // ── 4. INPUT BAR ─────────────────────────────────────
-                        if gameManager.currentScene != "ENDING" {
-                            HStack(spacing: 12) {
-                                HStack {
-                                    Text(gameManager.currentChoices.isEmpty
-                                         ? "Waiting for Alex…"
-                                         : "Choose a response…")
-                                    .foregroundColor(.gray)
-                                    .font(.body)
-                                    Spacer()
-                                    Image(systemName: "face.smiling").foregroundColor(.gray)
-                                }
-                                .padding(.horizontal, 16).padding(.vertical, 8)
-                                .background(Color(UIColor.systemGray6))
-                                .cornerRadius(20)
-                                .onTapGesture {
-                                    if !gameManager.currentChoices.isEmpty {
-                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                            showChoices.toggle()
-                                        }
-                                    }
-                                }
-                                
-                                Image(systemName: "arrow.up.circle.fill")
-                                    .font(.system(size: 30))
-                                    .foregroundColor(showChoices ? .red : .gray)
-                            }
-                            .padding(.horizontal).padding(.vertical, 10)
-                            .background(.ultraThinMaterial)
-                        }
-                        
-                        // ── 5. CHOICE KEYBOARD ───────────────────────────────
-                        if showChoices && !gameManager.currentChoices.isEmpty {
-                            ChoiceKeyboardView(
-                                choices:     gameManager.currentChoices,
-                                denialScore: gameManager.denialScore
-                            ) { choice in
-                                withAnimation {
-                                    showChoices = false
-                                    gameManager.playerMadeChoice(choice)
-                                }
-                            }
-                            .transition(.move(edge: .bottom))
-                            .zIndex(2)
-                        }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    
-                    // ── 6. MEMORY BLEED OVERLAY ──────────────────────────────
-                    MemoryBleedOverlayView(
-                        denialScore:         gameManager.denialScore,
-                        recentAlexMessages:  gameManager.recentAlexReplies
-                    )
-                    .allowsHitTesting(false)
-                    .zIndex(5)
-                    
-                    // ── 7. GLITCH OVERLAY ────────────────────────────────────
-                    GlitchSceneView(
-                        trigger:       gameManager.glitchTrigger,
-                        level:         gameManager.denialLevel,
-                        denialScore:   gameManager.denialScore,
-                        shadowTrigger: gameManager.shadowTrigger,
-                        crackTrigger:  gameManager.crackTrigger
-                    )
-                    .allowsHitTesting(false)
-                    
-                    // ── 8. TUTORIAL OVERLAY ──────────────────────────────────
-                    if showTutorial {
-                        TutorialOverlayView(isVisible: $showTutorial)
-                            .transition(.opacity)
-                            .zIndex(90)
-                    }
-                    
-                    // ── 9. ACT TRANSITION OVERLAY ────────────────────────────
-                    if showActTransition {
-                        ActTransitionView(
-                            actNumber: transitionActNumber,
-                            actTitle:  actTitleName(for: transitionActNumber),
-                            isVisible: $showActTransition
-                        )
-                        .transition(.opacity)
-                        .zIndex(80)
-                    }
+                    chatComposerPlaceholder
                 }
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        VStack(spacing: 1) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .foregroundColor(headerAvatarColor)
-                                .font(.system(size: 20))
-                            Text("Alex")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                            Text(alexStatusText)
-                                .font(.system(size: 9))
-                                .foregroundColor(.gray)
+                .padding(.horizontal, 12)
+                .padding(.top, showChoiceStrip ? 10 : 12)
+                .padding(.bottom, 8)
+                .background(chatHeaderBarColor)
+            }
+        }
+    }
+    
+    private var chatMessagesScroll: some View {
+        ScrollView {
+            ScrollViewReader { proxy in
+                VStack(spacing: 18) {
+                    ForEach(chatThreadRows) { row in
+                        switch row {
+                        case .chapter(let title):
+                            Text(title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.92))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        case .message(let message):
+                            MessageBubbleEnhanced(message: message)
+                            .id(message.id)
                         }
                     }
                     
-                    ToolbarItem(placement: .topBarTrailing) {
-                        HStack(spacing: 12) {
-                            UnknownContactButton()
-                            EvidenceBoardButton()
-                            SignalBarView(denialScore: gameManager.denialScore)
-                        }
-                        .padding(.trailing, 2)
+                    if gameManager.isTyping {
+                        AlexTypingIndicatorView()
+                            .id("TypingIndicator")
                     }
+                    
+                    Color.clear.frame(height: 1).id("bottomAnchor")
                 }
+                .padding(.bottom, chapter1ChatBottomInsetForEnding)
                 .onAppear {
-                    if !AppSettings.shared.hasSeenTutorial {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation(.easeIn(duration: 0.4)) { showTutorial = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                    }
+                }
+                .onChange(of: gameManager.messages) { _, _ in
+                    withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
+                }
+                .onChange(of: gameManager.isTyping) { _, isTyping in
+                    if isTyping {
+                        withAnimation(.spring()) { proxy.scrollTo("TypingIndicator", anchor: .bottom) }
+                    }
+                }
+                .onChange(of: gameManager.currentChoices.count) { _, _ in
+                    withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
+                }
+                .onChange(of: gameManager.currentScene) { _, newScene in
+                    if newScene == "ENDING" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            withAnimation(.easeOut(duration: 2.0)) {
+                                proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                            }
                         }
-                    }
-                    resumeAmbientEffectsIfNeeded()
-                }
-                .onChange(of: gameManager.currentAct) { _, newAct in
-                    guard newAct > 1, !shownActTransitions.contains(newAct) else { return }
-                    shownActTransitions.insert(newAct)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        transitionActNumber = newAct
-                        withAnimation { showActTransition = true }
-                    }
-                }
-                .onChange(of: gameManager.shouldQuit) { _, quit in
-                    if quit {
-                        gameManager.shouldQuit = false
-                        GameSaveManager.shared.clearSave()
-                        AudioManager.shared.stopBackgroundMusic()
-                        AudioManager.shared.playBackgroundMusic(filename: "Horror")
-                        onReturnToMenu()
                     }
                 }
             }
         }
-        .checkRealTimeEvent(manager: gameManager)
-        .statusBarHidden(true)
+        .scrollBounceBehavior(.basedOnSize)
+        .padding(.top, 4)
     }
     
-    // MARK: - Resume Ambient Effects (used on Continue)
-    /// Restores heartbeat and noise overlay when resuming a saved game,
-    /// without requiring new player input.
+    private var chatComposerPlaceholder: some View {
+        HStack(spacing: 10) {
+            Text(gameManager.currentChoices.isEmpty
+                 ? "Waiting for Alex…"
+                 : "Choose a response…")
+            .foregroundColor(Color.black.opacity(0.45))
+            .font(.system(size: 15, weight: .regular))
+            Spacer(minLength: 0)
+            Image(systemName: "face.smiling")
+                .font(.system(size: 19, weight: .regular))
+                .foregroundColor(Color.black.opacity(0.35))
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundColor(Color.black.opacity(0.38))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(white: 0.82))
+        .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+        .padding(.horizontal, 10)
+    }
+    
+    @ViewBuilder
+    private var chatOverlayStack: some View {
+        MemoryBleedOverlayView(
+            denialScore:         gameManager.denialScore,
+            recentAlexMessages:  gameManager.recentAlexReplies
+        )
+        .allowsHitTesting(false)
+        .zIndex(5)
+        
+        GlitchSceneView(
+            trigger:       gameManager.glitchTrigger,
+            level:         gameManager.denialLevel,
+            denialScore:   gameManager.denialScore,
+            shadowTrigger: gameManager.shadowTrigger,
+            crackTrigger:  gameManager.crackTrigger
+        )
+        .allowsHitTesting(false)
+        
+        if showTutorial {
+            TutorialOverlayView(isVisible: $showTutorial)
+                .transition(.opacity)
+                .zIndex(90)
+        }
+        
+        if showActTransition {
+            ActTransitionView(
+                actNumber: transitionActNumber,
+                actTitle:  actTitleName(for: transitionActNumber),
+                isVisible: $showActTransition
+            )
+            .transition(.opacity)
+            .zIndex(80)
+        }
+        
+        if gameManager.currentScene == "ENDING", gameManager.isEndingFinished,
+           chapter1EndingPhase == .chapterFooter || chapter1EndingPhase == .comingSoonTeaser {
+            chapter1EndingSequenceLayer
+                .zIndex(200)
+                .allowsHitTesting(chapter1EndingPhase == .comingSoonTeaser)
+        }
+    }
+    
+    private var chapter1EndChapterFooterBanner: some View {
+        VStack(spacing: 6) {
+            Text("END OF CHAPTER 1")
+                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .tracking(2.5)
+                .foregroundColor(.white.opacity(0.92))
+            Text("Acts I–III are all part of Chapter 1. This build is the full Chapter 1 arc.")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.white.opacity(0.56))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 4)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(0.55))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+    }
+    
+    private var chapter1EndingSequenceLayer: some View {
+        ZStack(alignment: .bottom) {
+            if chapter1EndingPhase == .comingSoonTeaser {
+                ZStack {
+                    Color.black
+                        .opacity(0.74 * comingSoonTeaserOpacity)
+                        .ignoresSafeArea()
+                    
+                    VStack {
+                        Spacer(minLength: 0)
+                        VStack(spacing: 14) {
+                            Text("Coming soon")
+                                .font(.system(size: 26, weight: .bold, design: .serif))
+                                .foregroundColor(.white)
+                            Text("More of Alex’s story")
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.48))
+                                .tracking(1.5)
+                            Text("You can scroll back through the thread above whenever you like.")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(.white.opacity(0.68))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 8)
+                        }
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                )
+                        )
+                        .scaleEffect(comingSoonTeaserScale)
+                        .opacity(comingSoonTeaserOpacity)
+                        .padding(.horizontal, 28)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .transition(.opacity)
+            }
+            
+            if chapter1EndingPhase == .chapterFooter {
+                chapter1EndChapterFooterBanner
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+    
     private func resumeAmbientEffectsIfNeeded() {
         guard !gameManager.messages.isEmpty else { return }
         
-        // Heartbeat is active during Scene7 and Scene8
         let heartbeatScenes = ["S7", "S8"]
         if heartbeatScenes.contains(gameManager.currentScene) {
             gameManager.startHeartbeat()
         }
-        // GlitchSceneView handles noise sync via .onAppear using restored denialScore
     }
-    
-    // MARK: - Helpers
     
     private func actTitleName(for act: Int) -> String {
         switch act {
         case 2:  "The File"
         case 3:  "Resolution"
         default: "First Contact"
-        }
-    }
-    
-    // MARK: - Nested: Psychological Profile Card
-    
-    struct PsychologicalProfileView: View {
-        let profile: (title: String, description: String, color: Color)
-        
-        var body: some View {
-            VStack(spacing: 20) {
-                Text("SESSION TERMINATED")
-                    .font(.caption.monospaced())
-                    .foregroundColor(.gray)
-                
-                Text(profile.title)
-                    .font(.system(size: 32, weight: .black))
-                    .foregroundColor(profile.color)
-                
-                Text(profile.description)
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                
-                Divider().background(Color.white.opacity(0.2))
-                
-                Text("DATA LOG: 18 OCT 2019 - 02:14 AM")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
-            }
-            .padding(24)
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(20)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(profile.color.opacity(0.5), lineWidth: 2)
-            )
-            .shadow(color: profile.color.opacity(0.2), radius: 15)
         }
     }
 }
@@ -1912,19 +2019,6 @@ private struct DebugStatChip: View {
     }
 }
 
-// MARK: - Chat Bubble Shape
-
-struct ChatBubbleShape: Shape {
-    var isFromMe: Bool
-    func path(in rect: CGRect) -> Path {
-        Path(UIBezierPath(
-            roundedRect: rect,
-            byRoundingCorners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight],
-            cornerRadii: CGSize(width: 18, height: 18)
-        ).cgPath)
-    }
-}
-
 // MARK: - Choice Keyboard
 
 struct ChoiceKeyboardView: View {
@@ -1932,34 +2026,52 @@ struct ChoiceKeyboardView: View {
     let denialScore: Int
     let onSelect: (PlayerChoice) -> Void
     
+    /// Same accent red as the user message bubble (header / profile red family).
+    private static let accentRed = Color(red: 0.545, green: 0.0, blue: 0.0)
+    private static let rowFill = Color(red: 0.14, green: 0.03, blue: 0.045)
+    
     var body: some View {
-        VStack(spacing: 12) {
-            Capsule().fill(Color.gray.opacity(0.3))
-                .frame(width: 40, height: 5).padding(.top, 8)
-            
-            VStack(spacing: 8) {
-                ForEach(choices) { choice in
-                    Button(action: { onSelect(choice) }) {
-                        Text(applyZalgo(to: choice.text, intensity: denialScore))
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white.opacity(0.3))
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                            )
-                            .padding(.horizontal)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(choices) { choice in
+                choiceButton(for: choice)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    /// Each row height follows only that choice's text (1 line = short; 2+ lines = taller for that row only).
+    private func choiceButton(for choice: PlayerChoice) -> some View {
+        Button(action: { onSelect(choice) }) {
+            Text(applyZalgo(to: choice.text, intensity: denialScore))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.white.opacity(0.95))
+                .multilineTextAlignment(.center)
+                .lineLimit(6)
+                .minimumScaleFactor(0.82)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background {
+                    ZStack {
+                        Self.rowFill
+                        HStack(spacing: 0) {
+                            Rectangle()
+                                .fill(Self.accentRed)
+                                .frame(width: 3)
+                            Spacer(minLength: 0)
+                            Rectangle()
+                                .fill(Self.accentRed)
+                                .frame(width: 3)
+                        }
                     }
                 }
-            }
-            .padding(.bottom, 30)
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
         }
-        .frame(maxWidth: .infinity)
-        .background(Color.red.opacity(0.45))
-        .cornerRadius(20, corners: [.topLeft, .topRight])
-        .shadow(radius: 10)
+        .buttonStyle(.plain)
     }
     
     /// Applies Zalgo-style diacritic corruption when denial score exceeds 10.
@@ -1992,24 +2104,6 @@ struct ChoiceKeyboardView: View {
         return result
     }
 }
-
-// MARK: - View Extension: Corner Radius
-
-extension View {
-    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
-        clipShape(RoundedCorner(radius: radius, corners: corners))
-    }
-}
-
-struct RoundedCorner: Shape {
-    var radius: CGFloat = .infinity
-    var corners: UIRectCorner = .allCorners
-    func path(in rect: CGRect) -> Path {
-        Path(UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius)).cgPath)
-    }
-}
-
-// MARK: - Preview
 
 #Preview {
     ContentView().preferredColorScheme(.dark)
