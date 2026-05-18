@@ -1,46 +1,65 @@
 import SwiftUI
 
 // MARK: - Choice Keyboard
+// Inline strip above the composer: dark fill with red side bars per row.
 
 struct ChoiceKeyboardView: View {
     let choices: [PlayerChoice]
     let denialScore: Int
     let onSelect: (PlayerChoice) -> Void
-    
+
+    /// Same accent red as the user message bubble (header / profile red family).
+    private static let accentRed = Color(red: 0.545, green: 0.0, blue: 0.0)
+    private static let rowFill = Color(red: 0.14, green: 0.03, blue: 0.045)
+
     var body: some View {
-        VStack(spacing: 12) {
-            Capsule().fill(Color.gray.opacity(0.3))
-                .frame(width: 40, height: 5).padding(.top, 8)
-            
-            VStack(spacing: 8) {
-                ForEach(choices) { choice in
-                    Button(action: { onSelect(choice) }) {
-                        Text(applyZalgo(to: choice.text, intensity: denialScore))
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white.opacity(0.3))
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                            )
-                            .padding(.horizontal)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(choices) { choice in
+                choiceButton(for: choice)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Each row height follows only that choice's text (1 line = short; 2+ lines = taller for that row only).
+    private func choiceButton(for choice: PlayerChoice) -> some View {
+        Button(action: { onSelect(choice) }) {
+            Text(applyZalgo(to: choice.text, intensity: denialScore))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.white.opacity(0.95))
+                .multilineTextAlignment(.center)
+                .lineLimit(6)
+                .minimumScaleFactor(0.82)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background {
+                    ZStack {
+                        Self.rowFill
+                        HStack(spacing: 0) {
+                            Rectangle()
+                                .fill(Self.accentRed)
+                                .frame(width: 3)
+                            Spacer(minLength: 0)
+                            Rectangle()
+                                .fill(Self.accentRed)
+                                .frame(width: 3)
+                        }
                     }
                 }
-            }
-            .padding(.bottom, 30)
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
         }
-        .frame(maxWidth: .infinity)
-        .background(Color.red.opacity(0.45))
-        .cornerRadius(20, corners: [.topLeft, .topRight])
-        .shadow(radius: 10)
+        .buttonStyle(.plain)
     }
-    
+
     /// Applies Zalgo-style diacritic corruption when denial score exceeds 10.
     private func applyZalgo(to text: String, intensity: Int) -> String {
         guard intensity > 10 else { return text }
-        
+
         let zalgoMarks = [
             "\u{030d}", "\u{030e}", "\u{0304}", "\u{0305}", "\u{033f}", "\u{0311}",
             "\u{0306}", "\u{0310}", "\u{0352}", "\u{0357}", "\u{0351}", "\u{0301}",
@@ -51,12 +70,12 @@ struct ChoiceKeyboardView: View {
             "\u{034a}", "\u{034b}", "\u{034c}", "\u{034d}", "\u{034e}", "\u{0353}",
             "\u{0354}", "\u{0355}", "\u{0356}", "\u{0359}", "\u{035a}", "\u{0323}"
         ]
-        
+
         var result = ""
         for char in text {
             result.append(char)
             if char.isWhitespace { continue }
-            
+
             let marksCount = intensity > 15 ? Int.random(in: 1...3) : Int.random(in: 0...1)
             for _ in 0..<marksCount {
                 if let mark = zalgoMarks.randomElement() {

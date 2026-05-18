@@ -6,17 +6,15 @@ import GameplayKit
 final class GameSaveManager {
     static let shared = GameSaveManager()
     private let key = "ra214_savedGameState"
-    
+
     var hasSave: Bool {
         UserDefaults.standard.data(forKey: key) != nil
     }
-    
+
     func save(from manager: GameManager) {
         guard manager.currentScene != "ENDING",
               !manager.messages.isEmpty else { return }
-        
-        UnknownContactManager.shared.saveState()
-        
+
         let savedMessages = manager.messages.map { msg -> SavedGameState.SavedMessage in
             var typeKey = "text"
             var typePayload = ""
@@ -29,17 +27,18 @@ final class GameSaveManager {
             }
             return SavedGameState.SavedMessage(
                 text: msg.text, isFromMe: msg.isFromMe,
-                time: msg.time, typeKey: typeKey, typePayload: typePayload
+                time: msg.time, typeKey: typeKey, typePayload: typePayload,
+                isRead: msg.isRead
             )
         }
-        
+
         let currentChoices = manager.currentChoices.map {
             SavedGameState.SavedChoice(text: $0.text, typeString: $0.type.rawValue)
         }
         let lastPlayerChoice = manager.lastPlayerChoice.map {
             SavedGameState.SavedChoice(text: $0.text, typeString: $0.type.rawValue)
         }
-        
+
         let state = SavedGameState(
             denialScore:       manager.denialScore,
             turnCount:         manager.turnCount,
@@ -59,20 +58,20 @@ final class GameSaveManager {
             shadowTrigger:     manager.shadowTrigger,
             crackTrigger:      manager.crackTrigger
         )
-        
+
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: key)
         }
     }
-    
+
     @discardableResult
     func restore(into manager: GameManager) -> Bool {
         guard let data = UserDefaults.standard.data(forKey: key),
               let state = try? JSONDecoder().decode(SavedGameState.self, from: data)
         else { return false }
-        
-        UnknownContactManager.shared.restoreState()
-        
+
+        manager.resetAlexPipelineForRestore()
+
         manager.denialScore       = state.denialScore
         manager.turnCount         = state.turnCount
         manager.currentScene      = state.currentScene
@@ -82,12 +81,12 @@ final class GameSaveManager {
         manager.trustCount        = state.trustCount ?? 0
         manager.denialCount       = state.denialCount ?? 0
         manager.avoidanceCount    = state.avoidanceCount ?? 0
-        
+
         // Restore visual triggers so GlitchScene immediately syncs on Continue
         manager.glitchTrigger = state.glitchTrigger ?? 0
         manager.shadowTrigger = state.shadowTrigger ?? 0
         manager.crackTrigger  = state.crackTrigger  ?? 0
-        
+
         manager.messages = state.savedMessages.compactMap { saved in
             let type: MessageType
             switch saved.typeKey {
@@ -97,26 +96,28 @@ final class GameSaveManager {
             case "lockedFile":  type = .lockedFile(saved.typePayload)
             default:            type = .text
             }
+            // Missing `isRead` in older saves: player bubbles default read; Alex inbound defaults unread
+            // so the lock-screen feed can show activity after returning.
             return Message(text: saved.text, isFromMe: saved.isFromMe,
-                           time: saved.time, isRead: true, type: type)
+                           time: saved.time, isRead: saved.isRead ?? saved.isFromMe, type: type)
         }
-        
+
         if let savedChoices = state.currentChoices {
             manager.currentChoices = savedChoices.compactMap {
                 guard let type = ChoiceType(rawValue: $0.typeString) else { return nil }
                 return PlayerChoice(text: $0.text, type: type)
             }
         }
-        
+
         if let lpc = state.lastPlayerChoice, let type = ChoiceType(rawValue: lpc.typeString) {
             manager.lastPlayerChoice = PlayerChoice(text: lpc.text, type: type)
         }
-        
+
         manager.pastChoices = state.pastChoices ?? []
-        
+
         // Lock all scene didEnter side-effects during state machine restore
         manager.isRestoringFromSave = true
-        
+
         let t = state.turnCount
         if      t >= 9 { manager.stateMachine?.enter(SceneEndingState.self) }
         else if t >= 8 { manager.stateMachine?.enter(Scene8State.self) }
@@ -127,35 +128,31 @@ final class GameSaveManager {
         else if t >= 2 { manager.stateMachine?.enter(Scene3State.self) }
         else if t >= 1 { manager.stateMachine?.enter(Scene2State.self) }
         else           { manager.stateMachine?.enter(Scene1State.self) }
-        
+
         manager.isRestoringFromSave = false
         manager.refreshAISession()
-        
+
         // Re-activate heartbeat if the saved scene requires it
         let heartbeatScenes = ["S7", "S8"]
         if heartbeatScenes.contains(state.currentScene) {
             manager.startHeartbeat()
         }
-        
-        // Regenerate choices if the player had none when they quit
-        if manager.currentChoices.isEmpty
-            && manager.currentScene != "ENDING"
-            && manager.currentScene != "S5" {
-            Task { await manager.generateAlexReply() }
-        }
-        
+
+        // Alex continuation after a mid-turn save is started from the home hub via `resumePendingAlexReplyIfNeeded()`
+        // (avoid duplicate `generateAlexReply` tasks vs. the same call on first home appearance).
+
         return true
     }
-    
+
     func clearSave() {
         UserDefaults.standard.removeObject(forKey: key)
     }
-    
+
     var savedDateString: String? {
         guard let data = UserDefaults.standard.data(forKey: key),
               let state = try? JSONDecoder().decode(SavedGameState.self, from: data)
         else { return nil }
-        
+
         let fmt = DateFormatter()
         fmt.dateStyle = .short
         fmt.timeStyle = .short

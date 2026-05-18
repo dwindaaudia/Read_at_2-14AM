@@ -6,7 +6,10 @@ struct ContentView: View {
 
     @StateObject private var gameManager = GameManager()
     @State private var currentScreen: AppScreen = .splash
-    @State private var isUnlocked = false
+    @State private var homeChatUnlocked = false
+    /// Bumped whenever the player invokes "Reset All Game Data" so `HomescreenView` is rebuilt
+    /// with fresh @State (intro animation, glitch timer, lock-feed snapshot).
+    @State private var homeSessionID = UUID()
     @Environment(\.scenePhase) var scenePhase
 
     var body: some View {
@@ -18,60 +21,55 @@ struct ContentView: View {
 
                 case .splash:
                     SplashScreenView {
+                        if GameSaveManager.shared.hasSave {
+                            GameSaveManager.shared.restore(into: gameManager)
+                            homeChatUnlocked = true
+                        }
                         withAnimation(.easeIn(duration: 0.5)) {
-                            currentScreen = .mainMenu
+                            currentScreen = .home
                             AudioManager.shared.playBackgroundMusic(filename: "Horror")
                         }
                     }
                     .transition(.opacity)
 
-                case .mainMenu:
-                    MainMenuView(
-                        onNewGame: {
-                            GameSaveManager.shared.clearSave()
-                            EvidenceBoardManager.shared.resetFragments()
-                            UnknownContactManager.shared.reset()
-                            withAnimation(.easeIn(duration: 0.4)) { currentScreen = .contentWarning }
+                case .home:
+                    HomescreenView(
+                        gameManager: gameManager,
+                        chatUnlocked: $homeChatUnlocked,
+                        onOpenChat: {
+                            if gameManager.messages.isEmpty {
+                                gameManager.triggerInitialLockscreenEvent()
+                            }
+                            withAnimation(.easeIn(duration: 0.35)) {
+                                currentScreen = .game
+                            }
                         },
-                        onContinue: {
-                            GameSaveManager.shared.restore(into: gameManager)
-                            isUnlocked = false
-                            withAnimation(.easeIn(duration: 0.35)) { currentScreen = .game }
-                        }
+                        onResetAll: performFullReset
                     )
-                    .transition(.opacity)
-
-                case .contentWarning:
-                    ContentWarningView {
-                        withAnimation(.easeIn(duration: 0.4)) { currentScreen = .lockscreen }
-                    }
-                    .transition(.opacity)
-
-                case .lockscreen:
-                    LockScreenView(isUnlocked: $isUnlocked) {
-                        gameManager.triggerInitialLockscreenEvent()
-                    }
-                    .onChange(of: isUnlocked) { _, unlocked in
-                        if unlocked {
-                            withAnimation(.easeIn(duration: 0.35)) { currentScreen = .game }
-                        }
-                    }
+                    .id(homeSessionID)
                     .transition(.opacity)
 
                 case .game:
                     ChatRoomView(gameManager: gameManager) {
-                        gameManager.restartGame()
-                        isUnlocked = false
-                        AudioManager.shared.stopBackgroundMusic()
-                        AudioManager.shared.playBackgroundMusic(filename: "Horror")
-                        withAnimation(.easeIn(duration: 0.5)) { currentScreen = .mainMenu }
+                        GameSaveManager.shared.save(from: gameManager)
+                        withAnimation(.easeIn(duration: 0.35)) {
+                            currentScreen = .home
+                            homeChatUnlocked = true
+                        }
                     }
                     .transition(.opacity)
                 }
             }
-            UnknownContactBannerView()
-                .padding(.top, -400)
-                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+        .onChange(of: currentScreen) { _, screen in
+            if screen == .game {
+                ChatNavigationBarStyler.applyOpaqueDarkBar()
+            } else {
+                ChatNavigationBarStyler.restoreDefaults()
+            }
+            if screen == .home {
+                gameManager.resumePendingAlexReplyIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
@@ -79,8 +77,23 @@ struct ContentView: View {
                 gameManager.scheduleHorrorNotification()
             } else if newPhase == .active {
                 gameManager.cancelNotifications()
+                if currentScreen == .home {
+                    gameManager.resumePendingAlexReplyIfNeeded()
+                }
             }
         }
+    }
+
+    // MARK: - Reset
+    /// Wipes save, evidence, totalClears, in-memory game state, and forces the home hub to
+    /// rebuild with fresh @State so the new-player intro animation can replay.
+    private func performFullReset() {
+        gameManager.restartGame()
+        GameSaveManager.shared.clearSave()
+        EvidenceBoardManager.shared.resetFragments()
+        AppSettings.shared.totalClears = 0
+        homeChatUnlocked = false
+        homeSessionID = UUID()
     }
 }
 

@@ -2,8 +2,6 @@ import Foundation
 
 // MARK: - Message Data Models
 
-//Message Model contain type
-// TODO: - Seperating voiceNote, image, lockedFile as Asset and find whether this opt is plausible
 enum MessageType: Equatable {
     case text
     case systemAlert
@@ -17,6 +15,7 @@ struct Message: Identifiable, Equatable {
     let text: String
     let isFromMe: Bool
     let time: String
-    let isRead: Bool
+    /// For Alex-side messages: whether the player has already seen this in the chat thread.
+    var isRead: Bool
     let type: MessageType
 }

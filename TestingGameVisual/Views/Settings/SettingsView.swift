@@ -7,6 +7,9 @@ struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var showResetConfirm = false
 
+    /// Provided by the root so the Reset action can also wipe save / evidence / game state.
+    var onResetAll: (() -> Void)? = nil
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -126,7 +129,9 @@ struct SettingsView: View {
                                     settings.musicVolume = 0.5
                                     settings.sfxVolume = 0.8
                                     settings.hapticsEnabled = true
+                                    onResetAll?()
                                     HapticManager.shared.playGlitchHaptic()
+                                    dismiss()
                                 }
                                 Button("Cancel", role: .cancel) {}
                             }
