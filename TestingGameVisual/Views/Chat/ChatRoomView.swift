@@ -99,6 +99,9 @@ struct ChatRoomView: View {
         .onAppear {
             gameManager.isPlayerInChat = true
             gameManager.markAlexInboundMessagesRead()
+            // Audit §10.1: warm the on-device LLM the moment the player is in chat —
+            // they're about to interact, and the first reply pays the cold-start cost.
+            gameManager.prewarmAIIfAvailable()
             if !AppSettings.shared.hasSeenTutorial {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation(.easeIn(duration: 0.4)) { showTutorial = true }

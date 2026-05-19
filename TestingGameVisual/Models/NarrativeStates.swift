@@ -3,6 +3,14 @@ import GameplayKit
 
 // MARK: - GameplayKit Narrative States
 // ─────────────────────────────────────────────────────────────────────────────
+// Audit follow-ups:
+// • Every dispatched closure is guarded by `manager.currentScene == sceneID`
+//   so a game reset / scene jump between schedule-time and fire-time cannot
+//   mutate the new game's state.
+// • Scene 3/5/8 no longer call `manager.refreshAISession()`. Refreshing the
+//   `LanguageModelSession` mid-game wiped Apple's internal transcript and
+//   destroyed narrative continuity. The session now lives continuously across
+//   one run; only `restartGame()` and `GameSaveManager.restore` rebuild it.
 
 class NarrativeState: GKState {
     unowned let manager: GameManager
@@ -26,6 +34,17 @@ class NarrativeState: GKState {
 
     func getPromptData() -> (goal: String, situation: String) {
         return (goal: "Continue the conversation as Alex.", situation: "You are Alex.")
+    }
+
+    /// Schedules `work` after `delay` seconds, but only fires it if the manager is
+    /// still in this scene at fire-time. Prevents stale closures from mutating a
+    /// new game session after restart/restore.
+    func schedule(after delay: TimeInterval, _ work: @escaping () -> Void) {
+        let expectedScene = sceneID
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak manager] in
+            guard let manager, manager.currentScene == expectedScene else { return }
+            work()
+        }
     }
 }
 
@@ -89,7 +108,6 @@ final class Scene3State: NarrativeState {
         super.didEnter(from: previousState)
         guard !manager.isRestoringFromSave else { return }
         EvidenceBoardManager.shared.unlockFragment(forScene: "S3")
-        manager.refreshAISession()
 
         manager.triggerSpecialEvent(type: .image("alex n friend"), text: "Look closely at the timestamp...")
     }
@@ -179,12 +197,15 @@ final class Scene4State: NarrativeState {
 // MARK: Scene 5 — Cliffhanger / Bridge (no AI)
 
 final class Scene5State: NarrativeState {
+    /// How long the bridge cliffhanger holds before auto-advancing to Scene 6.
+    /// Public-static so `GameSaveManager` can re-schedule the same delay on restore.
+    static let bridgeAdvanceDelay: TimeInterval = 5.0
+
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
         guard !manager.isRestoringFromSave else { return }
         EvidenceBoardManager.shared.unlockFragment(forScene: "S5")
 
-        manager.refreshAISession()
         manager.currentAct = 2
 
         if !manager.hasSentEndingFile {
@@ -194,9 +215,10 @@ final class Scene5State: NarrativeState {
 
         manager.currentChoices = []
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.manager.turnCount = 6
-            self.manager.stateMachine?.enter(Scene6State.self)
+        schedule(after: Self.bridgeAdvanceDelay) { [weak manager] in
+            guard let manager else { return }
+            manager.turnCount = 6
+            manager.stateMachine?.enter(Scene6State.self)
         }
     }
 }
@@ -209,7 +231,8 @@ final class Scene6State: NarrativeState {
         guard !manager.isRestoringFromSave else { return }
         EvidenceBoardManager.shared.unlockFragment(forScene: "S6")
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        schedule(after: 1.5) { [weak manager] in
+            guard let manager else { return }
             let glitchText = """
             ERROR: FILE_01.enc DECRYPTING...
             PROGRESS: 34%... 61%... 89%... INCOMPLETE
@@ -219,13 +242,14 @@ final class Scene6State: NarrativeState {
             Loc: -6.2088, 106.8456
             Time: 18 Oct 2019, 02:14 AM
             """
-            self.manager.triggerSystemMessage(glitchText)
+            manager.triggerSystemMessage(glitchText)
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+        schedule(after: 3.0) { [weak manager] in
+            guard let manager else { return }
             let triggerChoice = PlayerChoice(text: "[SYSTEM: File opened by player]", type: .trust)
-            self.manager.lastPlayerChoice = triggerChoice
-            Task { await self.manager.generateAlexReply() }
+            manager.lastPlayerChoice = triggerChoice
+            Task { await manager.generateAlexReply() }
         }
     }
 
@@ -261,12 +285,12 @@ final class Scene7State: NarrativeState {
         EvidenceBoardManager.shared.unlockFragment(forScene: "S7")
         manager.startHeartbeat()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.manager.triggerSystemMessage("WARNING: TEMPORAL DISCREPANCY DETECTED. MESSAGE ORIGIN: 18 OCT 2019.")
+        schedule(after: 1.0) { [weak manager] in
+            manager?.triggerSystemMessage("WARNING: TEMPORAL DISCREPANCY DETECTED. MESSAGE ORIGIN: 18 OCT 2019.")
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.manager.triggerSpecialEvent(
+        schedule(after: 3.0) { [weak manager] in
+            manager?.triggerSpecialEvent(
                 type: .image("IMG02"),
                 text: "On that bridge... a part of me still remains."
             )
@@ -308,20 +332,20 @@ final class Scene8State: NarrativeState {
         guard !manager.isRestoringFromSave else { return }
         EvidenceBoardManager.shared.unlockFragment(forScene: "S8")
 
-        manager.refreshAISession()
         manager.currentAct = 3
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.manager.triggerSystemMessage("ERROR: MESSAGE QUEUED SINCE 18 OCT 2019.")
-            self.manager.glitchTrigger += 2
+        schedule(after: 1.0) { [weak manager] in
+            guard let manager else { return }
+            manager.triggerSystemMessage("ERROR: MESSAGE QUEUED SINCE 18 OCT 2019.")
+            manager.glitchTrigger += 2
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            self.manager.triggerSystemMessage("RECIPIENT STATUS: UNKNOWN. DELIVERY DELAYED: 1,826 DAYS.")
+        schedule(after: 2.5) { [weak manager] in
+            manager?.triggerSystemMessage("RECIPIENT STATUS: UNKNOWN. DELIVERY DELAYED: 1,826 DAYS.")
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
-            self.manager.triggerSpecialEvent(
+        schedule(after: 4.5) { [weak manager] in
+            manager?.triggerSpecialEvent(
                 type: .voiceNote("VN_X1.mp3"),
                 text: "i've been trying to reach you since that night..."
             )

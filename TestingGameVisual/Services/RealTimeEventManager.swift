@@ -39,12 +39,13 @@ struct RealTimeEventModifier: ViewModifier {
                 }
             }
 
-            // Glitch burst at the end of the sequence
+            // Glitch burst at the end of the sequence.
+            // (`static_sfx.mp3` is not bundled — the audit flagged the dangling call;
+            // removed here so we don't log a missing-asset warning on every 2:14 event.)
             let finalDelay = (RealTimeEventManager.specialMessages.last?.delay ?? 14) + 3.5
             DispatchQueue.main.asyncAfter(deadline: .now() + finalDelay) {
                 manager.glitchTrigger += 4
                 HapticManager.shared.playGlitchHaptic()
-                AudioManager.shared.playSound("static_sfx")
             }
         }
     }

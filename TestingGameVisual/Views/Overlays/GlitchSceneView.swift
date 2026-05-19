@@ -333,7 +333,9 @@ struct GlitchSceneView: View {
 
 @MainActor
 final class GlitchSceneHolder: ObservableObject {
-    @Published var scene: GlitchScene
+    /// Constructed once and never reassigned — `@Published` annotation removed
+    /// because it caused needless view diffing for a value that doesn't change.
+    let scene: GlitchScene
 
     init() {
         let s = GlitchScene(size: UIScreen.main.bounds.size)

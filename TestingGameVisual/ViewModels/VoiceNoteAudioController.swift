@@ -47,11 +47,12 @@ final class VoiceNoteAudioController: ObservableObject {
     
     private func startTimer() {
         timer?.invalidate()
+        // Audit fix: volume is applied once when playback starts (see `play(filename:)`),
+        // not on every 20Hz tick. The Settings sheet rarely opens during voice-note playback;
+        // if the user *does* change SFX volume mid-playback, the change applies on the next play.
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
-                // Keep volume in sync with user settings on every tick
-                self.player?.volume = AppSettings.shared.sfxVolume
                 self.progress = min(1.0, self.progress + (0.05 / self.duration))
                 if self.progress >= 1.0 { self.stop() }
             }

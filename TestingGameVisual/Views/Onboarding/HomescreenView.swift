@@ -85,6 +85,9 @@ struct HomescreenView: View {
             startGlitchLoop()
             configureHomeOnAppear()
             gameManager.resumePendingAlexReplyIfNeeded()
+            // Audit §10.1: from the home hub the player is one tap away from chat — warm
+            // the on-device LLM proactively so the first reply doesn't pay cold-start.
+            gameManager.prewarmAIIfAvailable()
         }
         .onChange(of: gameManager.messages) { _, _ in
             if !gameManager.messages.isEmpty { chatUnlocked = true }

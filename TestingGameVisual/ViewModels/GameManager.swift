@@ -48,13 +48,133 @@ class GameManager: ObservableObject {
 
     // MARK: - AI Session Management
 
+    /// Rebuilds the AI session from scratch in "blank slate" state. Used for a true new
+    /// game (`restartGame`). For save-restore, prefer `rebuildSessionFromHistory(_:)`
+    /// which seeds the new session's transcript with the saved conversation.
     func refreshAISession() {
 #if canImport(FoundationModels)
         if #available(iOS 18.0, *) {
             session = LanguageModelSession(instructions: alexPersonaInstructions)
+            session?.prewarm()
         }
 #endif
     }
+
+    /// Audit follow-up (§10.3): on save-restore, rehydrate Apple's `LanguageModelSession`
+    /// with a `Transcript` that contains the persona instructions followed by every prior
+    /// player choice / Alex reply pair. The new session therefore continues the
+    /// conversation with full memory instead of starting blank.
+    ///
+    /// System alerts and non-text events (image / voice note / locked file) are skipped:
+    /// they are game-UX signals, not chat utterances.
+    func rebuildSessionFromHistory(_ history: [Message]) {
+#if canImport(FoundationModels)
+        if #available(iOS 18.0, *) {
+            let transcript = Self.buildSeededTranscript(
+                persona: alexPersonaInstructions,
+                history: history
+            )
+            session = LanguageModelSession(transcript: transcript)
+            session?.prewarm()
+        }
+#endif
+    }
+
+    /// Public hook for views to warm the model when the player is *about* to interact
+    /// (e.g. opening Chat from Home). No-op when FoundationModels is unavailable.
+    func prewarmAIIfAvailable() {
+#if canImport(FoundationModels)
+        if #available(iOS 18.0, *) {
+            session?.prewarm()
+        }
+#endif
+    }
+
+#if canImport(FoundationModels)
+    @available(iOS 18.0, macOS 15.0, *)
+    private static func buildSeededTranscript(persona: String, history: [Message]) -> Transcript {
+        var entries: [Transcript.Entry] = []
+
+        // 1) Instructions entry — carries the persona.
+        let instructionsSegment = Transcript.Segment.text(
+            Transcript.TextSegment(id: UUID().uuidString, content: persona)
+        )
+        entries.append(.instructions(
+            Transcript.Instructions(
+                id: UUID().uuidString,
+                segments: [instructionsSegment],
+                toolDefinitions: []
+            )
+        ))
+
+        // 2) Prompt / Response pairs from chat history.
+        var i = 0
+        while i < history.count {
+            let msg = history[i]
+            guard msg.type == .text else { i += 1; continue }
+
+            if msg.isFromMe {
+                // Player utterance → Transcript.Prompt
+                let promptSegment = Transcript.Segment.text(
+                    Transcript.TextSegment(id: UUID().uuidString, content: msg.text)
+                )
+                entries.append(.prompt(
+                    Transcript.Prompt(
+                        id: UUID().uuidString,
+                        segments: [promptSegment]
+                    )
+                ))
+                i += 1
+                // Coalesce consecutive Alex text replies (1–2 per turn) into one Response.
+                var alexLines: [String] = []
+                while i < history.count, !history[i].isFromMe, history[i].type == .text {
+                    alexLines.append(history[i].text)
+                    i += 1
+                }
+                if !alexLines.isEmpty {
+                    let responseSegment = Transcript.Segment.text(
+                        Transcript.TextSegment(
+                            id: UUID().uuidString,
+                            content: alexLines.joined(separator: "\n")
+                        )
+                    )
+                    entries.append(.response(
+                        Transcript.Response(
+                            id: UUID().uuidString,
+                            assetIDs: [],
+                            segments: [responseSegment]
+                        )
+                    ))
+                }
+            } else {
+                // Orphan Alex line with no preceding player prompt — wrap in a synthetic
+                // prompt so the transcript stays in alternating order the model expects.
+                let placeholderPrompt = Transcript.Segment.text(
+                    Transcript.TextSegment(id: UUID().uuidString, content: "[system: scene event]")
+                )
+                entries.append(.prompt(
+                    Transcript.Prompt(
+                        id: UUID().uuidString,
+                        segments: [placeholderPrompt]
+                    )
+                ))
+                let responseSegment = Transcript.Segment.text(
+                    Transcript.TextSegment(id: UUID().uuidString, content: msg.text)
+                )
+                entries.append(.response(
+                    Transcript.Response(
+                        id: UUID().uuidString,
+                        assetIDs: [],
+                        segments: [responseSegment]
+                    )
+                ))
+                i += 1
+            }
+        }
+
+        return Transcript(entries: entries)
+    }
+#endif
 
     private let alexPersonaInstructions = """
     You are the Narrative AI for 'Read at 2:14 AM', a psychological horror chat game.
@@ -89,16 +209,13 @@ class GameManager: ObservableObject {
     - THE ENCRYPTED TRUTH: You know about a corrupted file named "FILE_01.enc". It contains the monitor of your final heartbeat.
     """
 
-    // MARK: - Published State
+    // MARK: - Published State (read by views)
 
     @Published var messages: [Message] = []
     @Published var currentChoices: [PlayerChoice] = []
     @Published var isTyping = false
     @Published var currentAct = 1
     @Published var currentScene = "S1"
-
-    @Published var fakeBatteryLevel: Double = 85.0
-    @Published var fakeTime: String = "2:14"
 
     @Published var trustCount     = 0
     @Published var denialCount    = 0
@@ -118,16 +235,20 @@ class GameManager: ObservableObject {
     @Published var shouldQuit         = false
     @Published var isEndingFinished   = false
 
-    // Prompt context — used to build each LLM call
-    @Published var lastPlayerChoice: PlayerChoice?
-    @Published var lastChoiceTags: [String] = []
-    @Published var pastChoices: [String] = []
+    // MARK: - Internal Prompt Context (never observed by views)
+    // Demoted from @Published — these are read by save/restore and the AI pipeline,
+    // not by the UI. Keeping them off @Published avoids redundant view diffing.
+    var lastPlayerChoice: PlayerChoice?
+    var lastChoiceTags: [String] = []
+    var pastChoices: [String] = []
 
     // MARK: - Private State
 
     var stateMachine: GKStateMachine?
     private var heartbeatTimer: Timer?
-    private var clockGlitchTimer: Timer?
+    /// Bumped at the start of `generateAlexReply` so the player-input watchdog can tell
+    /// whether the call it kicked off is still in flight (race-condition guard).
+    private var isGeneratingAlexReply = false
 
     // MARK: - Heartbeat
 
@@ -161,34 +282,6 @@ class GameManager: ObservableObject {
         heartbeatTimer = nil
     }
 
-    // MARK: - Fake Clock Glitch
-
-    func startFakeClockLogic() {
-        clockGlitchTimer?.invalidate()
-        clockGlitchTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.randomizeClockGlitch()
-        }
-    }
-
-    /// Briefly flashes "2:13" when denialScore is high, then snaps back to "2:14".
-    private func randomizeClockGlitch() {
-        if denialScore > 10 && Double.random(in: 0...1) > 0.7 {
-            fakeTime = "2:13"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.fakeTime = "2:14"
-            }
-        }
-    }
-
-    // MARK: - Fake Battery
-
-    /// Drains the battery display slightly on each denial choice.
-    func updateFakeBattery(choiceType: ChoiceType) {
-        if choiceType == .denial {
-            fakeBatteryLevel = max(1.0, fakeBatteryLevel - Double.random(in: 2...5))
-        }
-    }
-
     // MARK: - Computed State
 
     var denialLevel: String {
@@ -202,12 +295,6 @@ class GameManager: ObservableObject {
         if denialScore > 12  { return .extreme }
         if denialScore > 6   { return .high }
         return .medium
-    }
-
-    var playerEmotion: PlayerEmotionState {
-        if denialScore > 7  { return .hostile }
-        if denialScore < -7 { return .trust }
-        return .neutral
     }
 
     var alexTone: AlexToneState {
@@ -227,19 +314,6 @@ class GameManager: ObservableObject {
 
     var recentAlexReplies: [String] {
         messages.filter { !$0.isFromMe && $0.type == .text }.suffix(3).map(\.text)
-    }
-
-    var psychologicalProfile: (title: String, description: String, color: Color) {
-        let score = denialScore
-        if score <= -12 {
-            return ("THE SAVIOR", "You chose empathy over fear. You remembered Alex when everyone else forgot.", .blue)
-        } else if score >= 12 {
-            return ("THE DENIER", "You fought the truth until the end. Your skepticism is a shield for your own guilt.", .red)
-        } else if score >= 5 {
-            return ("THE COWARD", "You ran from the truth. Avoidance was your only escape from the 2:14 loop.", .gray)
-        } else {
-            return ("THE LOST SOUL", "You are caught between two worlds, neither believing nor fully letting go.", .purple)
-        }
     }
 
     /// True once the encrypted file beat has played (turnCount or a system alert that mentions the decrypt).
@@ -290,6 +364,8 @@ class GameManager: ObservableObject {
         if #available(iOS 18.0, macOS 15.0, *) {
             if RuntimeEnvironment.canUseFoundationModels, SystemLanguageModel.default.isAvailable {
                 session = LanguageModelSession(instructions: alexPersonaInstructions)
+                // Eager prewarm at init — model is warm by the time the splash finishes.
+                session?.prewarm()
 
                 let taggingModel = SystemLanguageModel(useCase: .contentTagging)
                 taggingSession = LanguageModelSession(
@@ -299,6 +375,7 @@ class GameManager: ObservableObject {
                     Focus on disbelief, hostility, trust, avoidance, fear, memory, and urgency when relevant.
                     """
                 )
+                taggingSession?.prewarm()
             }
         }
 #endif
@@ -326,7 +403,6 @@ class GameManager: ObservableObject {
 
     func triggerInitialLockscreenEvent() {
         if messages.isEmpty {
-            startFakeClockLogic()
             stateMachine?.enter(Scene1State.self)
         }
     }
@@ -336,8 +412,6 @@ class GameManager: ObservableObject {
     func playerMadeChoice(_ choice: PlayerChoice) {
         guard !currentChoices.isEmpty else { return }
         guard currentScene != "ENDING" else { return }
-
-        updateFakeBattery(choiceType: choice.type)
 
         if choice.text == "Play Again" { restartGame(); return }
         if choice.text == "Quit Game"  { shouldQuit = true; return }
@@ -389,7 +463,11 @@ class GameManager: ObservableObject {
 
             let _ = Task { await generateAlexReply() }
             try? await Task.sleep(nanoseconds: 15_000_000_000)
-            if self.currentChoices.isEmpty && !self.isTyping {
+            // Watchdog: only fire recovery if the call we kicked off is no longer in flight
+            // AND it failed to set choices. The flag survives across `isTyping = false`
+            // (which fires mid-reply for the typing-indicator handoff) so we can't be
+            // tricked by the typing-indicator clearing into double-invoking.
+            if !self.isGeneratingAlexReply && self.currentChoices.isEmpty {
                 print("WATCHDOG: Alex got stuck — forcing recovery.")
                 await generateAlexReply()
             }
@@ -424,10 +502,6 @@ class GameManager: ObservableObject {
         shouldQuit          = false
         isEndingFinished    = false
 
-        fakeBatteryLevel = 85.0
-        fakeTime         = "2:14"
-        startFakeClockLogic()
-
         EvidenceBoardManager.shared.resetFragments()
 
         lastPlayerChoice = nil
@@ -439,6 +513,7 @@ class GameManager: ObservableObject {
 #if canImport(FoundationModels)
         if #available(iOS 18.0, *) {
             session = LanguageModelSession(instructions: alexPersonaInstructions)
+            session?.prewarm()
         }
 #endif
 
@@ -464,13 +539,16 @@ class GameManager: ObservableObject {
     // MARK: - Core LLM Call
 
     func generateAlexReply() async {
+        if isGeneratingAlexReply { return }
         if isTyping { return }
 
         guard let currentState = stateMachine?.currentState as? NarrativeState else { return }
         guard let lastPlayerChoice else { return }
 
+        isGeneratingAlexReply = true
+        defer { isGeneratingAlexReply = false }
+
         isTyping = true
-        defer { isTyping = false }
 
         let progress = Double(denialScore + 20) / 40.0
         let totalWaitTime = max(2.0, min(6.0, 30.0 * (1.0 - progress)))
@@ -492,6 +570,8 @@ class GameManager: ObservableObject {
                     let loopContext = loopCount > 0
                         ? "LOOP CONTEXT: This is loop #\(loopCount). Alex should feel a slight sense of deja vu, as if he remembers fragments of past conversations with the player."
                         : ""
+                    // NOTE: persona voice rules live in the session instructions and the
+                    // `AlexResponse` Generable `@Guide`. We no longer restate them here.
                     let prompt = """
                         # NARRATIVE ARCHITECT TASK
                         You are Alex, a digital ghost. You must maintain a seamless conversation thread.
@@ -510,9 +590,6 @@ class GameManager: ObservableObject {
                         Step 2: Reply as Alex. Start by addressing their specific emotion/question. Do not ignore them.
                         Step 3: After addressing them, move the scene forward using the SITUATION.
                         Step 4: Create 3 choices for the player that feel like the ONLY natural things they could say back to YOUR new messages.
-
-                        # CHARACTER VOICE:
-                        Lowercase only. Fragmented. Intimate but terrifying. Strictly English.
 
                         # RECENT HISTORY (Avoid Repetition):
                         \(recentChatHistory)
@@ -535,6 +612,9 @@ class GameManager: ObservableObject {
             finalChoices = fallback.choices
         }
 
+        // Clear typing indicator BEFORE messages start appearing (UX handoff).
+        // `isGeneratingAlexReply` stays true until the function actually returns,
+        // so the watchdog cannot mistake this for a finished turn.
         isTyping = false
 
         for reply in finalReplies {
@@ -641,12 +721,14 @@ class GameManager: ObservableObject {
         guard currentChoices.isEmpty else { return }
         guard let last = messages.last, last.isFromMe else { return }
         guard !isTyping else { return }
+        guard !isGeneratingAlexReply else { return }
         Task { await self.generateAlexReply() }
     }
 
     /// Called when loading a save so no stale LLM work keeps running against restored state.
     func resetAlexPipelineForRestore() {
         isTyping = false
+        isGeneratingAlexReply = false
     }
 
     func setChoices(_ texts: [String]) {

@@ -130,12 +130,26 @@ final class GameSaveManager {
         else           { manager.stateMachine?.enter(Scene1State.self) }
 
         manager.isRestoringFromSave = false
-        manager.refreshAISession()
+        // Audit §10.3: rehydrate the LLM session with the saved conversation so Alex
+        // resumes with full memory of prior turns, not a blank persona.
+        manager.rebuildSessionFromHistory(manager.messages)
 
         // Re-activate heartbeat if the saved scene requires it
         let heartbeatScenes = ["S7", "S8"]
         if heartbeatScenes.contains(state.currentScene) {
             manager.startHeartbeat()
+        }
+
+        // Audit fix: Scene 5 advances via a fire-and-forget DispatchQueue inside its
+        // didEnter. On restore, didEnter is skipped (isRestoringFromSave guard) so that
+        // dispatched closure never re-fires — the player would be stuck in S5 forever.
+        // Re-schedule it here, using the same delay constant.
+        if state.currentScene == "S5", state.turnCount < 6 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Scene5State.bridgeAdvanceDelay) { [weak manager] in
+                guard let manager, manager.currentScene == "S5" else { return }
+                manager.turnCount = 6
+                manager.stateMachine?.enter(Scene6State.self)
+            }
         }
 
         // Alex continuation after a mid-turn save is started from the home hub via `resumePendingAlexReplyIfNeeded()`
