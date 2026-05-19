@@ -4,6 +4,7 @@ import Foundation
 
 enum AppScreen: Equatable {
     case splash
+    case introVideo
     case home
     case game
 }

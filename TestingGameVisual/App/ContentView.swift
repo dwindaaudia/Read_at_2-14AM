@@ -26,6 +26,14 @@ struct ContentView: View {
                             homeChatUnlocked = true
                         }
                         withAnimation(.easeIn(duration: 0.5)) {
+                            currentScreen = .introVideo
+                        }
+                    }
+                    .transition(.opacity)
+
+                case .introVideo:
+                    IntroVideoView {
+                        withAnimation(.easeIn(duration: 0.5)) {
                             currentScreen = .home
                             AudioManager.shared.playBackgroundMusic(filename: "Horror")
                         }
