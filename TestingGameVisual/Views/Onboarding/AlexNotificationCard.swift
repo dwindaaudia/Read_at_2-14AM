@@ -49,17 +49,17 @@ struct AlexNotificationCard: View {
             }
         }
         .padding(15)
-        .background(Color.red.opacity(0.25))
+        .background(Color.gray.opacity(0))
         .overlay(
             VStack {
                 Rectangle()
-                    .fill(Color.red.opacity(0.5))
+                    .fill(Color.gray.opacity(0))
                     .frame(height: 1)
 
                 Spacer()
 
                 Rectangle()
-                    .fill(Color.red.opacity(0.5))
+                    .fill(Color.gray.opacity(0))
                     .frame(height: 1)
             }
         )

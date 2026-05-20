@@ -9,9 +9,9 @@ struct ChoiceKeyboardView: View {
     let onSelect: (PlayerChoice) -> Void
 
     /// Same accent red as the user message bubble (header / profile red family).
-    private static let accentRed = Color(red: 0.545, green: 0.0, blue: 0.0)
-    private static let rowFill = Color(red: 0.14, green: 0.03, blue: 0.045)
-
+    private static let borderAccent = Color(red: 26 / 255.0, green: 8 / 255.0, blue: 8 / 255.0)
+    private static let rowFill = Color(red: 182 / 255.0, green: 182 / 255.0, blue: 182 / 255.0)
+    private static let textDark = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(choices) { choice in
@@ -26,7 +26,7 @@ struct ChoiceKeyboardView: View {
         Button(action: { onSelect(choice) }) {
             Text(applyZalgo(to: choice.text, intensity: denialScore))
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white.opacity(0.95))
+                .foregroundColor(Self.textDark)
                 .multilineTextAlignment(.center)
                 .lineLimit(6)
                 .minimumScaleFactor(0.82)
@@ -39,11 +39,11 @@ struct ChoiceKeyboardView: View {
                         Self.rowFill
                         HStack(spacing: 0) {
                             Rectangle()
-                                .fill(Self.accentRed)
+                                .fill(Self.borderAccent)
                                 .frame(width: 3)
                             Spacer(minLength: 0)
                             Rectangle()
-                                .fill(Self.accentRed)
+                                .fill(Self.borderAccent)
                                 .frame(width: 3)
                         }
                     }
