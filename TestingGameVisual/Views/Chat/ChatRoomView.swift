@@ -6,11 +6,11 @@ import SwiftUI
 struct ChatRoomView: View {
     @ObservedObject var gameManager: GameManager
     let onReturnToMenu: () -> Void
-
+    
     private enum ChatThreadRow: Identifiable {
         case chapter(String)
         case message(Message)
-
+        
         var id: String {
             switch self {
             case .chapter(let title): return "chapter-\(title)"
@@ -18,11 +18,19 @@ struct ChatRoomView: View {
             }
         }
     }
-
+    
+    // ADD
+    @State private var previewedMediaIDs = Set<UUID>()
+    @State private var showImagePreview  = false
+    @State private var previewImageName: String? = nil
+    @State private var imageMagnification: CGFloat = 1.0
+    @State private var imageBaseMagnification: CGFloat = 1.0
+    
+    @State private var showTutorial      = false
     @State private var showActTransition = false
     @State private var transitionActNumber  = 2
     @State private var shownActTransitions  = Set<Int>()
-
+    
     /// Chapter 1 end-of-build sequence: pause → footer → short "Coming soon" → dismiss (chat stays readable).
     private enum Chapter1EndingPhase: Equatable {
         case idle
@@ -30,30 +38,30 @@ struct ChatRoomView: View {
         case comingSoonTeaser
         case finished
     }
-
+    
     @State private var chapter1EndingPhase: Chapter1EndingPhase = .idle
     @State private var chapter1EndingRunID: Int = 0
     @State private var chapter1EndingSequenceLock = false
     @State private var comingSoonTeaserScale: CGFloat = 0.88
     @State private var comingSoonTeaserOpacity: Double = 0
-
+    
     private let chapter1EndInitialDelay: Duration = .seconds(2.5)
     private let chapter1EndFooterHold: Duration = .seconds(3.0)
     private let chapter1EndTeaserHold: Duration = .seconds(2.5)
-
+    
     private var chapter1ChatBottomInsetForEnding: CGFloat {
         guard gameManager.currentScene == "ENDING",
               gameManager.isEndingFinished,
               chapter1EndingPhase == .chapterFooter else { return 0 }
         return 120
     }
-
+    
     private var alexStatusText: String {
         if gameManager.currentScene == "ENDING" { return "Offline" }
         if gameManager.isTyping { return "typing…" }
         return "Online"
     }
-
+    
     private var chatThreadRows: [ChatThreadRow] {
         let msgs = gameManager.messages
         guard !msgs.isEmpty else { return [] }
@@ -62,7 +70,7 @@ struct ChatRoomView: View {
         for m in msgs { rows.append(.message(m)) }
         return rows
     }
-
+    
     private var showChoiceStrip: Bool {
         gameManager.currentScene != "ENDING" && !gameManager.currentChoices.isEmpty
     }
@@ -97,30 +105,39 @@ struct ChatRoomView: View {
             endPoint: .bottom
         )
     }
-
+    
     private func goHome() {
         gameManager.isPlayerInChat = false
         GameSaveManager.shared.save(from: gameManager)
         onReturnToMenu()
     }
-
+    
     var body: some View {
         NavigationStack {
             chatRoomNavigationContent
         }
         .checkRealTimeEvent(manager: gameManager)
     }
-
+    
     @ViewBuilder
     private var chatRoomNavigationContent: some View {
         ZStack(alignment: .bottom) {
-            Color.black.ignoresSafeArea()
             chatMainStack
             chatOverlayStack
         }
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             chatCustomHeader
+        }
+        .background {
+            ZStack {
+                Image("red-overlay")
+                    .resizable()
+                    .scaledToFill()
+                Color.black
+                    .opacity(0.6)
+            }
+            .ignoresSafeArea()
         }
         .onAppear {
             gameManager.isPlayerInChat = true
@@ -181,10 +198,80 @@ struct ChatRoomView: View {
                     }
                 }
         )
+        // CHANGE
+        .overlay {
+            // MARK: - Full Screen Image Overlay dengan Tombol Tutup (X)
+            if showImagePreview, let imageName = previewImageName {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    
+                    VStack(spacing: 0) {
+                        // Header Bar (Tombol Silang & Teks Bantuan)
+                        HStack {
+                            Button {
+                                HapticManager.shared.playTypeHaptic()
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showImagePreview = false
+                                }
+                                // Reset zoom saat gambar ditutup agar gambar berikutnya kembali normal
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    imageMagnification = 1.0
+                                    imageBaseMagnification = 1.0
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .padding(12)
+                                    .background(Color.white.opacity(0.12), in: Circle())
+                            }
+                            Spacer()
+                            
+                            Text("Pinch to zoom")
+                                .font(.helvetica(12, weight: .medium)) // Mengikuti font kustom Anda
+                                .foregroundColor(.white.opacity(0.45))
+                            
+                            Spacer()
+                            
+                            // Kotak kosong untuk menyeimbangkan posisi teks di tengah
+                            Color.clear.frame(width: 44, height: 44)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 12)
+                        
+                        Spacer(minLength: 8)
+                        
+                        // Gambar dengan Fitur Pinch to Zoom
+                        Image(imageName)
+                            .resizable()
+                            .scaledToFit()
+                            .scaleEffect(imageMagnification)
+                            .animation(.interactiveSpring(), value: imageMagnification)
+                            .padding(.horizontal, 12)
+                            .gesture(
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        let next = imageBaseMagnification * value
+                                        // Membatasi zoom maksimal 4x dan minimal 1x (ukuran asli)
+                                        imageMagnification = min(max(next, 1.0), 4.0)
+                                    }
+                                    .onEnded { _ in
+                                        imageBaseMagnification = imageMagnification
+                                    }
+                            )
+                        
+                        Spacer(minLength: 24)
+                    }
+                    // Membiarkan VStack mematuhi safe area atas agar header tidak tertutup Notch/Dynamic Island
+                }
+                .transition(.opacity)
+                .zIndex(150)
+            }
+        }
     }
-
+    
     // MARK: Custom Header
-
+    
     private var chatCustomHeader: some View {
         HStack(alignment: .center, spacing: 0) {
             Button {
@@ -199,12 +286,12 @@ struct ChatRoomView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
-
+            
             Rectangle()
                 .fill(Color.white.opacity(0.22))
                 .frame(width: 1, height: 28)
                 .padding(.horizontal, 8)
-
+            
             HStack(spacing: 10) {
                 Image("alex pp")
                     .resizable()
@@ -215,7 +302,7 @@ struct ChatRoomView: View {
                         Rectangle()
                             .stroke(Color.white.opacity(0.18), lineWidth: 1)
                     )
-
+                
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Alex")
                         .font(.system(size: 17, weight: .bold))
@@ -226,9 +313,9 @@ struct ChatRoomView: View {
                 }
                 .fixedSize(horizontal: true, vertical: true)
             }
-
+            
             Spacer(minLength: 0)
-
+            
             EvidenceBoardButton(gameManager: gameManager)
                 .buttonStyle(.plain)
                 .padding(.trailing, 4)
@@ -237,9 +324,9 @@ struct ChatRoomView: View {
         .padding(.vertical, 6)
         .background(chatHeaderBarGradient)
     }
-
+    
     // MARK: Main Stack
-
+    
     @ViewBuilder
     private var chatMainStack: some View {
         VStack(spacing: 0) {
@@ -253,9 +340,9 @@ struct ChatRoomView: View {
                 .padding(.horizontal)
                 .padding(.top, 8)
             }
-
+            
             chatMessagesScroll
-
+            
             if gameManager.currentScene != "ENDING" {
                 VStack(spacing: showChoiceStrip ? 8 : 0) {
                     if showChoiceStrip {
@@ -268,8 +355,10 @@ struct ChatRoomView: View {
                             }
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else { // ADD
+                        chatComposerPlaceholder
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    chatComposerPlaceholder
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, showChoiceStrip ? 10 : 12)
@@ -278,11 +367,11 @@ struct ChatRoomView: View {
             }
         }
     }
-
+    
     private var chatMessagesScroll: some View {
-        ScrollView {
-            ScrollViewReader { proxy in
-                VStack(spacing: 16) {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 18) {
                     ForEach(chatThreadRows) { row in
                         switch row {
                         case .chapter(let title):
@@ -298,12 +387,12 @@ struct ChatRoomView: View {
                                 .id(message.id)
                         }
                     }
-
+                    
                     if gameManager.isTyping {
                         AlexTypingIndicatorView()
                             .id("TypingIndicator")
                     }
-
+                    
                     Color.clear.frame(height: 1).id("bottomAnchor")
                 }
                 .padding(.bottom, chapter1ChatBottomInsetForEnding)
@@ -312,8 +401,28 @@ struct ChatRoomView: View {
                         proxy.scrollTo("bottomAnchor", anchor: .bottom)
                     }
                 }
-                .onChange(of: gameManager.messages) { _, _ in
+                // CHANGE
+                .onChange(of: gameManager.messages) { _, newMessages in
                     withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
+                    
+                    if let lastMessage = newMessages.last,
+                       !lastMessage.isFromMe,
+                       !previewedMediaIDs.contains(lastMessage.id) {
+                        
+                        previewedMediaIDs.insert(lastMessage.id)
+                        
+                        switch lastMessage.type {
+                        case .image(let imageName):
+                            previewImageName = imageName
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showImagePreview = true
+                            }
+                        case .voiceNote(let vnName):
+                            AudioManager.shared.playSound(vnName)
+                        default:
+                            break
+                        }
+                    }
                 }
                 .onChange(of: gameManager.isTyping) { _, isTyping in
                     if isTyping {
@@ -337,7 +446,22 @@ struct ChatRoomView: View {
         .scrollBounceBehavior(.basedOnSize)
         .padding(.top, 4)
     }
-
+    
+    @ViewBuilder
+    private func chatRowView(for row: ChatThreadRow) -> some View {
+        switch row {
+        case .chapter(let title):
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white.opacity(0.92))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        case .message(let message):
+            MessageBubbleEnhanced(message: message)
+                .id(message.id)
+        }
+    }
+    
     private var chatComposerPlaceholder: some View {
         HStack(spacing: 10) {
             Text(gameManager.currentChoices.isEmpty
@@ -353,9 +477,9 @@ struct ChatRoomView: View {
         .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
         .padding(.horizontal, 10)
     }
-
+    
     // MARK: Overlays
-
+    
     @ViewBuilder
     private var chatOverlayStack: some View {
         MemoryBleedOverlayView(
@@ -364,7 +488,7 @@ struct ChatRoomView: View {
         )
         .allowsHitTesting(false)
         .zIndex(5)
-
+        
         GlitchSceneView(
             trigger:       gameManager.glitchTrigger,
             level:         gameManager.denialLevel,
@@ -384,7 +508,7 @@ struct ChatRoomView: View {
             .transition(.opacity)
             .zIndex(80)
         }
-
+        
         if gameManager.currentScene == "ENDING", gameManager.isEndingFinished,
            chapter1EndingPhase == .chapterFooter || chapter1EndingPhase == .comingSoonTeaser {
             chapter1EndingSequenceLayer
@@ -392,9 +516,9 @@ struct ChatRoomView: View {
                 .allowsHitTesting(chapter1EndingPhase == .comingSoonTeaser)
         }
     }
-
+    
     // MARK: Chapter 1 Ending Sequence
-
+    
     private var chapter1EndChapterFooterBanner: some View {
         VStack(spacing: 6) {
             Text("END OF CHAPTER 1")
@@ -421,7 +545,7 @@ struct ChatRoomView: View {
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
     }
-
+    
     private var chapter1EndingSequenceLayer: some View {
         ZStack(alignment: .bottom) {
             if chapter1EndingPhase == .comingSoonTeaser {
@@ -429,7 +553,7 @@ struct ChatRoomView: View {
                     Color.black
                         .opacity(0.74 * comingSoonTeaserOpacity)
                         .ignoresSafeArea()
-
+                    
                     VStack {
                         Spacer(minLength: 0)
                         VStack(spacing: 14) {
@@ -464,60 +588,60 @@ struct ChatRoomView: View {
                 }
                 .transition(.opacity)
             }
-
+            
             if chapter1EndingPhase == .chapterFooter {
                 chapter1EndChapterFooterBanner
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
     }
-
+    
     private func scheduleChapter1EndingSequenceIfNeeded() {
         guard gameManager.currentScene == "ENDING", gameManager.isEndingFinished else { return }
         guard chapter1EndingPhase == .idle else { return }
         guard !chapter1EndingSequenceLock else { return }
-
+        
         chapter1EndingSequenceLock = true
         chapter1EndingRunID += 1
         let run = chapter1EndingRunID
-
+        
         Task { @MainActor in
             try? await Task.sleep(for: chapter1EndInitialDelay)
             guard run == chapter1EndingRunID else { return }
-
+            
             withAnimation(.easeOut(duration: 0.45)) {
                 chapter1EndingPhase = .chapterFooter
             }
-
+            
             try? await Task.sleep(for: chapter1EndFooterHold)
             guard run == chapter1EndingRunID else { return }
-
+            
             comingSoonTeaserScale = 0.88
             comingSoonTeaserOpacity = 0
             withAnimation(.easeInOut(duration: 0.35)) {
                 chapter1EndingPhase = .comingSoonTeaser
             }
-
+            
             try? await Task.sleep(for: .milliseconds(80))
             guard run == chapter1EndingRunID else { return }
             withAnimation(.spring(response: 0.52, dampingFraction: 0.82)) {
                 comingSoonTeaserScale = 1.0
                 comingSoonTeaserOpacity = 1.0
             }
-
+            
             try? await Task.sleep(for: chapter1EndTeaserHold)
             guard run == chapter1EndingRunID else { return }
-
+            
             withAnimation(.easeInOut(duration: 0.55)) {
                 chapter1EndingPhase = .finished
                 comingSoonTeaserOpacity = 0
                 comingSoonTeaserScale = 0.94
             }
-
+            
             chapter1EndingSequenceLock = false
         }
     }
-
+    
     private func cancelChapter1EndingSequence(resetPhase: Bool) {
         chapter1EndingRunID += 1
         chapter1EndingSequenceLock = false
@@ -529,23 +653,23 @@ struct ChatRoomView: View {
             comingSoonTeaserOpacity = 0
         }
     }
-
+    
     // MARK: Helpers
-
+    
     private func resumeAmbientEffectsIfNeeded() {
         guard !gameManager.messages.isEmpty else { return }
-
+        
         let heartbeatScenes = ["S7", "S8"]
         if heartbeatScenes.contains(gameManager.currentScene) {
             gameManager.startHeartbeat()
         }
     }
-
+    
     private func actTitleName(for act: Int) -> String {
         switch act {
-        case 2:  "The File"
-        case 3:  "Resolution"
-        default: "First Contact"
+        case 2:  return "The File"
+        case 3:  return "Resolution"
+        default: return "First Contact"
         }
     }
 }

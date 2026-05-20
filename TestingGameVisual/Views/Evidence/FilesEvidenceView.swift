@@ -51,53 +51,65 @@ struct FilesEvidenceView: View {
     }
 
     var body: some View {
-        ZStack {
-            Self.bgMaroon.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                customHeader
-
-                if alexFiles.isEmpty {
-                    ScrollView {
-                        Text("No file found.")
-                            .font(.helvetica(17, weight: .medium))
-                            .foregroundColor(.white.opacity(0.55))
-                            .frame(maxWidth: .infinity, minHeight: 200)
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 20) {
-                            ForEach(chapterBuckets, id: \.title) { bucket in
-                                Text(bucket.title)
-                                    .font(.helvetica(18, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 8)
-
-                                LazyVGrid(
-                                    columns: [
-                                        GridItem(.flexible(), spacing: 10),
-                                        GridItem(.flexible(), spacing: 10),
-                                        GridItem(.flexible(), spacing: 10)
-                                    ],
-                                    spacing: 10
-                                ) {
-                                    ForEach(bucket.items) { item in
-                                        InteractiveStoryFileCard(
-                                            item: item,
-                                            gameManager: gameManager,
-                                            cardOrange: Self.cardOrange,
-                                            accentMaroon: Self.accentMaroon
-                                        )
-                                    }
+        // ZStack utama bisa dihapus, langsung gunakan VStack sebagai kontainer utama
+        VStack(spacing: 0) {
+            customHeader
+            
+            if alexFiles.isEmpty {
+                ScrollView {
+                    Text("No file found.")
+                        .font(.helvetica(17, weight: .medium))
+                        .foregroundColor(.white.opacity(0.55))
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        ForEach(chapterBuckets, id: \.title) { bucket in
+                            Text(bucket.title)
+                                .font(.helvetica(18, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                            
+                            LazyVGrid(
+                                columns: [
+                                    GridItem(.flexible(), spacing: 10),
+                                    GridItem(.flexible(), spacing: 10),
+                                    GridItem(.flexible(), spacing: 10)
+                                ],
+                                spacing: 10
+                            ) {
+                                ForEach(bucket.items) { item in
+                                    InteractiveStoryFileCard(
+                                        item: item,
+                                        gameManager: gameManager,
+                                        cardOrange: Self.cardOrange,
+                                        accentMaroon: Self.accentMaroon
+                                    )
                                 }
-                                .padding(.horizontal, 12)
                             }
+                            .padding(.horizontal, 12)
                         }
-                        .padding(.bottom, 28)
                     }
+                    .padding(.bottom, 28)
                 }
             }
+        }
+        // MARK: - Terapkan Background di Sini
+        .background {
+            ZStack {
+                // 1. Warna dasar paling bawah
+                Self.bgMaroon
+                
+                Image("red-overlay")
+                    .resizable()
+                    .scaledToFill()
+                
+                Color.black
+                    .opacity(0.6)
+            }
+            .ignoresSafeArea()
         }
         .preferredColorScheme(.dark)
     }
