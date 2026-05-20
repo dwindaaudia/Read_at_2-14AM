@@ -459,7 +459,7 @@ private struct GhostNotificationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 8)
+            Rectangle()
                 .fill(Color.white.opacity(0.15))
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 4) {
@@ -481,8 +481,17 @@ private struct GhostNotificationRow: View {
         .padding(14)
         .background(Color.red.opacity(0.22))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.red.opacity(0.45), lineWidth: 1)
+            VStack {
+                Rectangle()
+                    .fill(Color.red.opacity(0.5))
+                    .frame(height: 1)
+
+                Spacer()
+
+                Rectangle()
+                    .fill(Color.red.opacity(0.5))
+                    .frame(height: 1)
+            }
         )
         .padding(.horizontal, 20)
     }
