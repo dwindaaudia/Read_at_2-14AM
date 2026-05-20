@@ -19,20 +19,21 @@ private struct LockScrollFadeMetrics: Equatable {
 
 /// Matches `chatHeaderBarColor` in chat — dark maroon dock, not bright pink-red.
 private var homeScreenDockBarColor: LinearGradient {
-    // Translating Hex #600606 to RGB
-    let baseColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
-    
-    return LinearGradient(
-        gradient: Gradient(colors: [
-             // Top: 100% opacity
-            baseColor.opacity(1.0),
-            baseColor.opacity(0.0)
-        ]),
-        startPoint: .top,
-        endPoint: .bottom
-    )
-}
-
+        // Top: #000000 (Pure Black)
+        let topColor = Color.black
+        
+        // Bottom: #1B1B1B (Dark Gray)
+        let bottomColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
+        
+        return LinearGradient(
+            gradient: Gradient(colors: [
+                bottomColor,
+                topColor
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
 struct HomescreenView: View {
     @ObservedObject var gameManager: GameManager
     @Binding var chatUnlocked: Bool
@@ -78,6 +79,11 @@ struct HomescreenView: View {
                 .ignoresSafeArea()
                 .opacity(0.5)
 
+            Color(red: 0.133, green: 0.0, blue: 0.0)
+                .opacity(0.6)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
             Color.black.opacity(brightnessDim).ignoresSafeArea()
             Color.red.opacity(glitchFlash).ignoresSafeArea().allowsHitTesting(false)
 
@@ -110,6 +116,22 @@ struct HomescreenView: View {
             FilesEvidenceView(gameManager: gameManager)
         }
     }
+    private var lockScreenHeaderBarGradient: LinearGradient {
+            // Top: #000000 (Pure Black)
+            let topColor = Color.black
+            
+            // Bottom: #1B1B1B (Dark Gray)
+            let bottomColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
+            
+            return LinearGradient(
+                gradient: Gradient(colors: [
+                    topColor,
+                    bottomColor
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
 
     // MARK: Subviews
 
@@ -154,6 +176,8 @@ struct HomescreenView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 72)
+        .padding(.bottom, 24)
+        .background(lockScreenHeaderBarGradient)
     }
 
     private var notificationsSection: some View {
@@ -252,8 +276,8 @@ struct HomescreenView: View {
                 showFiles = true
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 18)
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
         .padding(.bottom, 32)
         .frame(maxWidth: .infinity)
         .background {
