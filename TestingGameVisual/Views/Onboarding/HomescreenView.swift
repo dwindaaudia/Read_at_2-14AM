@@ -91,9 +91,12 @@ struct HomescreenView: View {
 
             VStack(spacing: 0) {
                 titleHeader
-                Spacer()
-                if shouldShowNotificationsSection { notificationsSection }
-                Spacer(minLength: 12)
+                if shouldShowNotificationsSection {
+                    notificationsSection
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else {
+                    Spacer(minLength: 0)
+                }
                 dockSection
             }
         }
@@ -182,6 +185,7 @@ struct HomescreenView: View {
 
     private var notificationsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Spacer()
             if showNotificationSectionHeader {
                 HStack {
                     Text("Notifications")
@@ -198,41 +202,47 @@ struct HomescreenView: View {
             }
 
             ZStack {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 10) {
-                        if hasReturningFeed {
-                            ForEach(lockScreenAlexQueue) { row in
-                                AlexNotificationCard(
-                                    message: row.text,
-                                    time: row.time,
-                                    isInteractive: chatUnlocked,
-                                    onTap: chatUnlocked ? { openChatIfAllowed() } : nil
-                                )
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 10) {
+                                Spacer(minLength: 0)
+
+                                notificationRows
+
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("lockNotificationBottomAnchor")
                             }
-                        } else {
-                            if showAlexNotification {
-                                AlexNotificationCard(
-                                    message: "Are you awake?",
-                                    time: "2:14 AM",
-                                    isInteractive: chatUnlocked,
-                                    onTap: chatUnlocked ? { openChatIfAllowed() } : nil
-                                )
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: geometry.size.height, alignment: .bottom)
+                            .padding(.top, 12)
+                            .padding(.bottom, 8)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .onScrollGeometryChange(for: LockScrollFadeMetrics.self) { geo in
+                            LockScrollFadeMetrics(
+                                offsetY: geo.contentOffset.y,
+                                contentH: geo.contentSize.height,
+                                visibleH: geo.visibleRect.height
+                            )
+                        } action: { _, metrics in
+                            applyLockScrollEdgeFades(metrics)
+                        }
+                        .onAppear {
+                            proxy.scrollTo("lockNotificationBottomAnchor", anchor: .bottom)
+                        }
+                        .onChange(of: lockScreenAlexQueue.count) { _, _ in
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo("lockNotificationBottomAnchor", anchor: .bottom)
+                            }
+                        }
+                        .onChange(of: showAlexNotification) { _, _ in
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo("lockNotificationBottomAnchor", anchor: .bottom)
                             }
                         }
                     }
-                    .padding(.top, 12)
-                    .padding(.bottom, 8)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .onScrollGeometryChange(for: LockScrollFadeMetrics.self) { geo in
-                    LockScrollFadeMetrics(
-                        offsetY: geo.contentOffset.y,
-                        contentH: geo.contentSize.height,
-                        visibleH: geo.visibleRect.height
-                    )
-                } action: { _, metrics in
-                    applyLockScrollEdgeFades(metrics)
                 }
 
                 VStack(spacing: 0) {
@@ -256,8 +266,30 @@ struct HomescreenView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .frame(maxHeight: 360)
+            .frame(maxHeight: .infinity)
             .clipped()
+        }
+    }
+
+    @ViewBuilder
+    private var notificationRows: some View {
+        if hasReturningFeed {
+            ForEach(lockScreenAlexQueue) { row in
+                AlexNotificationCard(
+                    message: row.text,
+                    time: row.time,
+                    isInteractive: chatUnlocked,
+                    onTap: chatUnlocked ? { openChatIfAllowed() } : nil
+                )
+            }
+        } else if showAlexNotification {
+            AlexNotificationCard(
+                message: "Are you awake?",
+                time: "2:14 AM",
+                isInteractive: chatUnlocked,
+                onTap: chatUnlocked ? { openChatIfAllowed() } : nil
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 

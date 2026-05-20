@@ -19,7 +19,6 @@ struct ChatRoomView: View {
         }
     }
 
-    @State private var showTutorial      = false
     @State private var showActTransition = false
     @State private var transitionActNumber  = 2
     @State private var shownActTransitions  = Set<Int>()
@@ -129,11 +128,6 @@ struct ChatRoomView: View {
             // Audit §10.1: warm the on-device LLM the moment the player is in chat —
             // they're about to interact, and the first reply pays the cold-start cost.
             gameManager.prewarmAIIfAvailable()
-            if !AppSettings.shared.hasSeenTutorial {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation(.easeIn(duration: 0.4)) { showTutorial = true }
-                }
-            }
             resumeAmbientEffectsIfNeeded()
             if gameManager.currentScene == "ENDING", gameManager.isEndingFinished {
                 scheduleChapter1EndingSequenceIfNeeded()
@@ -288,7 +282,7 @@ struct ChatRoomView: View {
     private var chatMessagesScroll: some View {
         ScrollView {
             ScrollViewReader { proxy in
-                VStack(spacing: 18) {
+                VStack(spacing: 16) {
                     ForEach(chatThreadRows) { row in
                         switch row {
                         case .chapter(let title):
@@ -380,11 +374,6 @@ struct ChatRoomView: View {
         )
         .allowsHitTesting(false)
 
-        if showTutorial {
-            TutorialOverlayView(isVisible: $showTutorial)
-                .transition(.opacity)
-                .zIndex(90)
-        }
 
         if showActTransition {
             ActTransitionView(

@@ -51,7 +51,7 @@ struct MessageBubbleEnhanced: View {
 
     private static let youBubble = Color(red: 0.545, green: 0, blue: 0)
     private static let alexBubble = Color(red: 0.216, green: 0.2, blue: 0.2)
-    private static let bubbleMax: CGFloat = 280
+    private static let bubbleMax: CGFloat = 300
 
     var body: some View {
         Group {
@@ -67,7 +67,6 @@ struct MessageBubbleEnhanced: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -83,6 +82,7 @@ struct MessageBubbleEnhanced: View {
                     .font(.system(size: 10, weight: .regular))
                     .foregroundColor(.white.opacity(0.42))
             }
+            .frame(maxWidth: Self.bubbleMax, alignment: .leading)
             Spacer(minLength: 0)
         }
     }
@@ -96,13 +96,14 @@ struct MessageBubbleEnhanced: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.9))
                     .fixedSize(horizontal: true, vertical: true)
-                HStack(alignment: .center, spacing: 4) {
+                HStack(alignment: .bottom, spacing: 4) {
                     readMetaOutgoing
+                        .padding(.bottom, 2)
                     outgoingBubbleContent
                 }
+                .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
                 .animation(.spring(response: 0.42, dampingFraction: 0.86), value: message.isRead)
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -132,8 +133,8 @@ struct MessageBubbleEnhanced: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
                 .background(Rectangle().fill(Self.alexBubble))
-                .frame(maxWidth: Self.bubbleMax, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+                
+//                .fixedSize(horizontal: false, vertical: true)
         case .image(let assetName):
             ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
         case .voiceNote(let id):
@@ -143,21 +144,21 @@ struct MessageBubbleEnhanced: View {
                 HStack(spacing: 10) {
                     Image(systemName: "lock.doc.fill")
                         .font(.title3)
-                        .foregroundColor(Color(red: 0.55, green: 0, blue: 0.05))
+                        .foregroundColor(.white.opacity(0.9))
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Hidden file")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.black.opacity(0.85))
+                            .foregroundColor(.white.opacity(0.9))
                         Text(id)
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.black.opacity(0.55))
+                            .foregroundColor(.white.opacity(0.62))
                     }
                 }
             }
             .padding(14)
             .frame(maxWidth: Self.bubbleMax, alignment: .leading)
-            .background(Color.white)
-            .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+            .background(Self.alexBubble)
+            .overlay(Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1))
         default:
             EmptyView()
         }
@@ -174,7 +175,6 @@ struct MessageBubbleEnhanced: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
                 .background(Rectangle().fill(Self.youBubble))
-                .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
                 .fixedSize(horizontal: false, vertical: true)
         case .image(let assetName):
             ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
@@ -201,7 +201,7 @@ struct MessageBubbleEnhanced: View {
             .padding(14)
             .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
             .background(Self.youBubble.opacity(0.95))
-            .fixedSize(horizontal: true, vertical: false)
+//            .fixedSize(horizontal: true, vertical: true)
         default:
             EmptyView()
         }

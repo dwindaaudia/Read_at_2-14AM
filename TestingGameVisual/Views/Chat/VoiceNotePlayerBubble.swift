@@ -17,7 +17,7 @@ struct VoiceNotePlayerBubble: View {
             } label: {
                 Image(systemName: controller.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 32))
-                    .foregroundColor(isFromMe ? .white : Color(red: 0.5, green: 0, blue: 0.02))
+                    .foregroundColor(.white)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -45,17 +45,17 @@ struct VoiceNotePlayerBubble: View {
                 HStack {
                     Text(formattedTime(controller.duration * controller.progress))
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isFromMe ? .white.opacity(0.85) : .black.opacity(0.55))
+                        .foregroundColor(isFromMe ? .white.opacity(0.85) : .white.opacity(0.85))
                     Spacer()
                     Text(formattedTime(controller.duration))
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isFromMe ? .white.opacity(0.65) : .black.opacity(0.45))
+                        .foregroundColor(isFromMe ? .white.opacity(0.65) : .white.opacity(0.65))
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(isFromMe ? Color(red: 0.545, green: 0, blue: 0) : Color.white)
+        .background(isFromMe ? Color(red: 0.545, green: 0, blue: 0) : Color(red: 0.216, green: 0.2, blue: 0.2))
         .clipShape(Rectangle())
         .frame(maxWidth: 260, alignment: isFromMe ? .trailing : .leading)
         .fixedSize(horizontal: true, vertical: false)
@@ -63,9 +63,9 @@ struct VoiceNotePlayerBubble: View {
 
     private func waveColor(isPast: Bool) -> Color {
         if isPast {
-            return isFromMe ? .white.opacity(0.95) : Color(red: 0.55, green: 0.05, blue: 0.08)
+            return isFromMe ? .white.opacity(0.95) : .white.opacity(0.85)
         } else {
-            return isFromMe ? .white.opacity(0.35) : Color.black.opacity(0.2)
+            return isFromMe ? .white.opacity(0.35) : .white.opacity(0.28)
         }
     }
 
