@@ -145,11 +145,6 @@ struct ChatRoomView: View {
             // Audit §10.1: warm the on-device LLM the moment the player is in chat —
             // they're about to interact, and the first reply pays the cold-start cost.
             gameManager.prewarmAIIfAvailable()
-            if !AppSettings.shared.hasSeenTutorial {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation(.easeIn(duration: 0.4)) { showTutorial = true }
-                }
-            }
             resumeAmbientEffectsIfNeeded()
             if gameManager.currentScene == "ENDING", gameManager.isEndingFinished {
                 scheduleChapter1EndingSequenceIfNeeded()
@@ -502,13 +497,8 @@ struct ChatRoomView: View {
             crackTrigger:  gameManager.crackTrigger
         )
         .allowsHitTesting(false)
-        
-        if showTutorial {
-            TutorialOverlayView(isVisible: $showTutorial)
-                .transition(.opacity)
-                .zIndex(90)
-        }
-        
+
+
         if showActTransition {
             ActTransitionView(
                 actNumber: transitionActNumber,

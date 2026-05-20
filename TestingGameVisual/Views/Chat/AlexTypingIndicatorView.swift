@@ -5,8 +5,22 @@ import SwiftUI
 
 struct AlexTypingIndicatorView: View {
     @State private var pulse = false
+    @State private var isBubbleVisible = true
 
     var body: some View {
+        Group {
+            if isBubbleVisible {
+                typingBubble
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.28), value: isBubbleVisible)
+        .onAppear { pulse = true }
+        .task { await runHesitationLoop() }
+    }
+
+    private var typingBubble: some View {
         HStack(alignment: .top, spacing: 0) {
             HStack(spacing: 5) {
                 ForEach(0..<3, id: \.self) { i in
@@ -33,6 +47,24 @@ struct AlexTypingIndicatorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
-        .onAppear { pulse = true }
+    }
+
+    @MainActor
+    private func runHesitationLoop() async {
+        isBubbleVisible = true
+        try? await Task.sleep(for: .seconds(6))
+
+        while !Task.isCancelled {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                isBubbleVisible = false
+            }
+            try? await Task.sleep(for: .milliseconds(Int.random(in: 750...1_350)))
+            if Task.isCancelled { return }
+
+            withAnimation(.easeInOut(duration: 0.28)) {
+                isBubbleVisible = true
+            }
+            try? await Task.sleep(for: .milliseconds(Int.random(in: 1_800...3_600)))
+        }
     }
 }

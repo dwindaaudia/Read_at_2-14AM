@@ -53,13 +53,13 @@ struct AlexNotificationCard: View {
         .overlay(
             VStack {
                 Rectangle()
-                    .fill(Color.gray.opacity(0))
+                    .fill(Color.gray.opacity(1))
                     .frame(height: 1)
 
                 Spacer()
 
                 Rectangle()
-                    .fill(Color.gray.opacity(0))
+                    .fill(Color.gray.opacity(1))
                     .frame(height: 1)
             }
         )

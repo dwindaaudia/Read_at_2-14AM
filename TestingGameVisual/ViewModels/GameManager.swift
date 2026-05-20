@@ -477,7 +477,16 @@ class GameManager: ObservableObject {
     /// Alex "opens" the player's bubble: show Read after a short delay (starts as Delivered).
     private func markPlayerMessageReadIfNeeded(id: UUID) {
         guard let idx = messages.firstIndex(where: { $0.id == id && $0.isFromMe }) else { return }
-        guard !messages[idx].isRead else { return }
+        markPlayerMessageRead(at: idx)
+    }
+
+    private func markLatestPlayerMessageReadIfNeeded() {
+        guard let idx = messages.lastIndex(where: { $0.isFromMe && !$0.isRead }) else { return }
+        markPlayerMessageRead(at: idx)
+    }
+
+    private func markPlayerMessageRead(at idx: Int) {
+        guard messages.indices.contains(idx), !messages[idx].isRead else { return }
         var m = messages[idx]
         m.isRead = true
         withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
@@ -650,6 +659,7 @@ class GameManager: ObservableObject {
     // MARK: - Helpers
 
     func addAlexMessage(_ text: String, type: MessageType) {
+        markLatestPlayerMessageReadIfNeeded()
         messages.append(Message(text: text, isFromMe: false, time: currentTime(), isRead: false, type: type))
         guard isPlayerInChat, let last = messages.last, !last.isFromMe else {
             // Player isn't in chat — play notification SFX so the lock-screen feed lights up audibly.
