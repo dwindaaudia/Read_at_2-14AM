@@ -294,9 +294,11 @@ struct ChatRoomView: View {
                         case .chapter(let title):
                             Text(title)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.92))
+                                .foregroundColor(.black.opacity(0.82))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 5)
+                                .background(Color(red: 0.871, green: 0.871, blue: 0.871))
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
                         case .message(let message):
                             MessageBubbleEnhanced(message: message)
                                 .id(message.id)
