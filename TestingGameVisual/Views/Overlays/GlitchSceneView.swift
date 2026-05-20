@@ -205,7 +205,7 @@ final class GlitchNode: SKNode {
     }
 
     func triggerCrack() {
-        crackNode.alpha = 1.0
+        crackNode.alpha = 0.7
 
         let playSound = SKAction.playSoundFileNamed("crack_sfx.mp3", waitForCompletion: false)
         let shake1 = SKAction.moveBy(x: 15, y: -15, duration: 0.05)
@@ -218,7 +218,7 @@ final class GlitchNode: SKNode {
 
     /// Makes the crack visible immediately without animation (e.g. after restoring from save).
     func showStaticCrack() {
-        crackNode.alpha = 1.0
+        crackNode.alpha = 0.7
     }
 
     /// Hides the crack overlay (e.g. when restarting the game).
@@ -232,7 +232,7 @@ final class GlitchNode: SKNode {
         if score > 7 {
             noiseNode.alpha = min(0.3, CGFloat(score - 7) * 0.03)
         }
-        crackNode.alpha = (crack > 0) ? 1.0 : 0
+        crackNode.alpha = (crack > 0) ? 0.7 : 0
     }
 
     // MARK: - Private Helpers
