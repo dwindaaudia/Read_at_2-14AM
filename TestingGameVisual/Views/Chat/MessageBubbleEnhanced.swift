@@ -50,6 +50,7 @@ struct MessageBubbleEnhanced: View {
     let message: Message
 
     private static let youBubble = Color(red: 0.545, green: 0, blue: 0)
+    private static let alexBubble = Color(red: 0.216, green: 0.2, blue: 0.2)
     private static let bubbleMax: CGFloat = 280
 
     var body: some View {
@@ -126,11 +127,11 @@ struct MessageBubbleEnhanced: View {
         case .text:
             Text(message.text)
                 .font(.system(size: 16, weight: .regular))
-                .foregroundColor(.black)
+                .foregroundColor(.white)
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .background(Rectangle().fill(Color.white))
+                .background(Rectangle().fill(Self.alexBubble))
                 .frame(maxWidth: Self.bubbleMax, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         case .image(let assetName):

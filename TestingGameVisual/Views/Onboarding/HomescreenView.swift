@@ -18,8 +18,22 @@ private struct LockScrollFadeMetrics: Equatable {
 }
 
 /// Matches `chatHeaderBarColor` in chat — dark maroon dock, not bright pink-red.
-private let homeScreenDockBarColor = Color(red: 0.11, green: 0.0, blue: 0.02)
-
+private var homeScreenDockBarColor: LinearGradient {
+        // Top: #000000 (Pure Black)
+        let topColor = Color.black
+        
+        // Bottom: #1B1B1B (Dark Gray)
+        let bottomColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
+        
+        return LinearGradient(
+            gradient: Gradient(colors: [
+                bottomColor,
+                topColor
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
 struct HomescreenView: View {
     @ObservedObject var gameManager: GameManager
     @Binding var chatUnlocked: Bool
@@ -38,7 +52,6 @@ struct HomescreenView: View {
     @State private var clockDigits = "2:14"
     @State private var brightnessDim: Double = 0
     @State private var glitchFlash: Double = 0
-    @State private var ghostNotifications: [GhostNotification] = []
     @State private var showAlexNotification = false
     @State private var introStarted = false
     @State private var ghostPhaseHidden = true
@@ -65,6 +78,11 @@ struct HomescreenView: View {
                 .aspectRatio(contentMode: .fill)
                 .ignoresSafeArea()
                 .opacity(0.5)
+
+            Color(red: 0.133, green: 0.0, blue: 0.0)
+                .opacity(0.6)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
 
             Color.black.opacity(brightnessDim).ignoresSafeArea()
             Color.red.opacity(glitchFlash).ignoresSafeArea().allowsHitTesting(false)
@@ -98,6 +116,22 @@ struct HomescreenView: View {
             FilesEvidenceView(gameManager: gameManager)
         }
     }
+    private var lockScreenHeaderBarGradient: LinearGradient {
+            // Top: #000000 (Pure Black)
+            let topColor = Color.black
+            
+            // Bottom: #1B1B1B (Dark Gray)
+            let bottomColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
+            
+            return LinearGradient(
+                gradient: Gradient(colors: [
+                    topColor,
+                    bottomColor
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
 
     // MARK: Subviews
 
@@ -142,6 +176,8 @@ struct HomescreenView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 72)
+        .padding(.bottom, 24)
+        .background(lockScreenHeaderBarGradient)
     }
 
     private var notificationsSection: some View {
@@ -174,11 +210,6 @@ struct HomescreenView: View {
                                 )
                             }
                         } else {
-                            if !ghostPhaseHidden {
-                                ForEach(ghostNotifications) { g in
-                                    GhostNotificationRow(title: g.title, message: g.message)
-                                }
-                            }
                             if showAlexNotification {
                                 AlexNotificationCard(
                                     message: "Are you awake?",
@@ -232,22 +263,22 @@ struct HomescreenView: View {
 
     private var dockSection: some View {
         HStack {
-            homeDockButton(title: "SETTINGS", systemImage: "gearshape.fill") {
+            homeDockButton(title: "Settings", systemImage: "gearshape.fill") {
                 showSettings = true
             }
 
-            homeDockButton(title: "CHAT", systemImage: "message.fill", disabled: !chatUnlocked) {
+            homeDockButton(title: "Chat", systemImage: "message.fill", disabled: !chatUnlocked) {
                 openChatIfAllowed()
             }
             .opacity(chatUnlocked ? 1 : 0.35)
 
-            homeDockButton(title: "FILES", systemImage: "folder.fill") {
+            homeDockButton(title: "Files", systemImage: "folder.fill") {
                 showFiles = true
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 18)
-        .padding(.bottom, 26)
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 32)
         .frame(maxWidth: .infinity)
         .background {
             homeScreenDockBarColor
@@ -337,7 +368,6 @@ struct HomescreenView: View {
         chatUnlocked = false
         ghostPhaseHidden = false
         showAlexNotification = false
-        ghostNotifications = GhostNotification.randomTriple()
         runNewPlayerIntro()
     }
 
@@ -388,7 +418,7 @@ struct HomescreenView: View {
                     .font(.system(size: 30))
                     .foregroundColor(.white)
                 Text(title)
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white)
             }
             .frame(maxWidth: .infinity)
@@ -431,68 +461,3 @@ struct AlexFeedRow: Identifiable {
     let time: String
 }
 
-private struct GhostNotification: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-
-    static func randomTriple() -> [GhostNotification] {
-        let pool: [(String, String)] = [
-            ("Instagram", "Someone liked your photo."),
-            ("Mail", "Your bank statement is ready."),
-            ("Weather", "Heavy rain expected after midnight."),
-            ("Calendar", "Reminder: Flight check-in opens."),
-            ("News", "Breaking: local tower outage reported."),
-            ("Fitness", "You haven't closed your rings today."),
-            ("Podcasts", "New episode: \"Signals in the Static\"."),
-            ("Maps", "Traffic is lighter than usual."),
-            ("Wallet", "Transaction declined — insufficient funds."),
-            ("Health", "Audio levels were high last night.")
-        ]
-        return pool.shuffled().prefix(3).map { GhostNotification(title: $0.0, message: $0.1) }
-    }
-}
-
-private struct GhostNotificationRow: View {
-    let title: String
-    let message: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Rectangle()
-                .fill(Color.white.opacity(0.15))
-                .frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
-                    Spacer()
-                    Text("2:13 AM")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.45))
-                }
-                Text(message)
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.92))
-                    .lineLimit(2)
-            }
-        }
-        .padding(14)
-        .background(Color.red.opacity(0.22))
-        .overlay(
-            VStack {
-                Rectangle()
-                    .fill(Color.red.opacity(0.5))
-                    .frame(height: 1)
-
-                Spacer()
-
-                Rectangle()
-                    .fill(Color.red.opacity(0.5))
-                    .frame(height: 1)
-            }
-        )
-        .padding(.horizontal, 20)
-    }
-}

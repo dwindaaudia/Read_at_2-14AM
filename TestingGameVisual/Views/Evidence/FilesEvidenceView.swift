@@ -11,8 +11,21 @@ struct FilesEvidenceView: View {
     @Environment(\.dismiss) private var dismiss
 
     private static let bgMaroon = Color(red: 0.07, green: 0.0, blue: 0.0)
-    private static let headerBar = Color(red: 0.11, green: 0.0, blue: 0.02)
-    private static let cardOrange = Color(red: 0.902, green: 0.584, blue: 0.0)
+
+    private var headerBar: LinearGradient {
+        // Translating Hex #600606 to RGB
+        let baseColor = Color(red: 96 / 255.0, green: 6 / 255.0, blue: 6 / 255.0)
+        
+        return LinearGradient(
+            gradient: Gradient(colors: [
+                baseColor.opacity(0.0), // Top: 0% opacity
+                baseColor.opacity(1.0)  // Bottom: 100% opacity
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+    private static let cardOrange = Color(red: 169 / 255.0, green: 169 / 255.0, blue: 169 / 255.0)
     private static let accentMaroon = Color(red: 0.29, green: 0.0, blue: 0.0)
 
     private var alexFiles: [AlexStoryFileItem] {
@@ -104,35 +117,40 @@ struct FilesEvidenceView: View {
     // MARK: Custom Header (matches ChatRoomView)
 
     private var customHeader: some View {
-        HStack(alignment: .center, spacing: 0) {
-            Button {
-                HapticManager.shared.playTypeHaptic()
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 20, weight: .semibold))
+            ZStack(alignment: .center) {
+                // 1. The Title (Perfectly centered in the ZStack)
+                Text("Files")
+                    .font(.helvetica(17, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+
+                // 2. The Leading Buttons (Pushed to the left)
+                HStack(alignment: .center, spacing: 0) {
+                    Button {
+                        HapticManager.shared.playTypeHaptic()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back")
+
+                    Rectangle()
+                        .fill(Color.white.opacity(0.22))
+                        .frame(width: 1, height: 28)
+                        .padding(.horizontal, 8)
+
+                    // This spacer pushes the button and divider to the leading edge
+                    Spacer(minLength: 0)
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-
-            Rectangle()
-                .fill(Color.white.opacity(0.22))
-                .frame(width: 1, height: 28)
-                .padding(.horizontal, 8)
-
-            Text("Files")
-                .font(.helvetica(17, weight: .bold))
-                .foregroundColor(.white)
-
-            Spacer(minLength: 0)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
+            .background(headerBar)
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
-        .background(Self.headerBar)
-    }
 
     private static func imageDisplayName(_ asset: String) -> String {
         let lower = asset.lowercased()

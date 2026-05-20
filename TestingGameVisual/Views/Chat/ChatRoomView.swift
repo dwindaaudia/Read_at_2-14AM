@@ -74,9 +74,36 @@ struct ChatRoomView: View {
     private var showChoiceStrip: Bool {
         gameManager.currentScene != "ENDING" && !gameManager.currentChoices.isEmpty
     }
-    
-    private var chatHeaderBarColor: Color {
-        Color(red: 0.11, green: 0.0, blue: 0.02)
+
+//    private var chatHeaderBarColor: Color {
+//        Color(red: 0.11, green: 0.0, blue: 0.02)
+//    }
+    private var chatHeaderBarGradient: LinearGradient {
+        // Translating Hex #600606 to RGB
+        let baseColor = Color(red: 96 / 255.0, green: 6 / 255.0, blue: 6 / 255.0)
+        
+        return LinearGradient(
+            gradient: Gradient(colors: [
+                baseColor.opacity(0.0), // Top: 0% opacity
+                baseColor.opacity(1.0)  // Bottom: 100% opacity
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+    private var chatFooterBarGradient: LinearGradient {
+        // Translating Hex #600606 to RGB
+        let baseColor = Color(red: 96 / 255.0, green: 6 / 255.0, blue: 6 / 255.0)
+        
+        return LinearGradient(
+            gradient: Gradient(colors: [
+                 // Top: 100% opacity
+                baseColor.opacity(1.0),
+                Color(red:75 / 255.0, green:5 / 255.0, blue:5 / 255.0)
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
     
     private func goHome() {
@@ -300,7 +327,7 @@ struct ChatRoomView: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
-        .background(chatHeaderBarColor)
+        .background(chatHeaderBarGradient)
     }
     
     // MARK: Main Stack
@@ -341,7 +368,7 @@ struct ChatRoomView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, showChoiceStrip ? 10 : 12)
                 .padding(.bottom, 8)
-                .background(chatHeaderBarColor)
+                .background(chatFooterBarGradient)
             }
         }
     }
@@ -351,7 +378,19 @@ struct ChatRoomView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     ForEach(chatThreadRows) { row in
-                        chatRowView(for: row)
+                        switch row {
+                        case .chapter(let title):
+                            Text(title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.black.opacity(0.82))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 5)
+                                .background(Color(red: 0.871, green: 0.871, blue: 0.871))
+                                .frame(maxWidth: .infinity)
+                        case .message(let message):
+                            MessageBubbleEnhanced(message: message)
+                                .id(message.id)
+                        }
                     }
                     
                     if gameManager.isTyping {
