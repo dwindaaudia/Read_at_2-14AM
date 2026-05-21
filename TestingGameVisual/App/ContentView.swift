@@ -5,7 +5,7 @@ import SwiftUI
 struct ContentView: View {
 
     @StateObject private var gameManager = GameManager()
-    @State private var currentScreen: AppScreen = .splash
+    @State private var currentScreen: AppScreen = .introVideo
     @State private var homeChatUnlocked = false
     /// Bumped whenever the player invokes "Reset All Game Data" so `HomescreenView` is rebuilt
     /// with fresh @State (intro animation, glitch timer, lock-feed snapshot).
@@ -14,25 +14,21 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
-
+            Color(red: 0.11, green: 0.035, blue: 0.035).ignoresSafeArea()
             Group {
                 switch currentScreen {
 
-                case .splash:
-                    SplashScreenView {
-                        if GameSaveManager.shared.hasSave {
-                            GameSaveManager.shared.restore(into: gameManager)
-                            homeChatUnlocked = true
-                        }
+                
+                case .introVideo:
+                    IntroVideoView {
                         withAnimation(.easeIn(duration: 0.5)) {
-                            currentScreen = .introVideo
+                            currentScreen = .titleVideo
                         }
                     }
                     .transition(.opacity)
 
-                case .introVideo:
-                    IntroVideoView {
+                case .titleVideo:
+                    TitleVideoView {
                         withAnimation(.easeIn(duration: 0.5)) {
                             currentScreen = .home
                             AudioManager.shared.playBackgroundMusic(filename: "Horror")
@@ -67,6 +63,12 @@ struct ContentView: View {
                     }
                     .transition(.opacity)
                 }
+            }
+        }
+        .onAppear {
+            if GameSaveManager.shared.hasSave {
+                GameSaveManager.shared.restore(into: gameManager)
+                homeChatUnlocked = true
             }
         }
         .onChange(of: currentScreen) { _, screen in
