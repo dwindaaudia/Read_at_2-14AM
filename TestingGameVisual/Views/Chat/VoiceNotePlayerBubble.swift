@@ -5,9 +5,11 @@ import SwiftUI
 struct VoiceNotePlayerBubble: View {
     let filename: String
     let isFromMe: Bool
+    var autoPlay: Bool = false
 
     @StateObject private var controller = VoiceNoteAudioController()
     @State private var barHeights: [CGFloat] = (0..<28).map { _ in CGFloat.random(in: 6...22) }
+    @State private var didAutoPlay = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -59,6 +61,11 @@ struct VoiceNotePlayerBubble: View {
         .clipShape(Rectangle())
         .frame(maxWidth: 260, alignment: isFromMe ? .trailing : .leading)
         .fixedSize(horizontal: true, vertical: false)
+        .onAppear {
+            guard autoPlay, !didAutoPlay, !controller.isPlaying else { return }
+            didAutoPlay = true
+            controller.toggle(filename: filename)
+        }
     }
 
     private func waveColor(isPast: Bool) -> Color {

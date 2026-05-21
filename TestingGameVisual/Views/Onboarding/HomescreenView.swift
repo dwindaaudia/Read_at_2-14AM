@@ -91,12 +91,20 @@ struct HomescreenView: View {
 
             VStack(spacing: 0) {
                 titleHeader
+                Rectangle()
+                    .fill(Color.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: 1)
+//                    .padding(.vertical, 8)
                 if shouldShowNotificationsSection {
                     notificationsSection
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 } else {
                     Spacer(minLength: 0)
                 }
+                Rectangle()
+                    .fill(Color.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: 1)
+//                    .padding(.vertical, 8)
                 dockSection
             }
         }
@@ -295,16 +303,28 @@ struct HomescreenView: View {
 
     private var dockSection: some View {
         HStack {
-            homeDockButton(title: "Settings", systemImage: "gearshape.fill") {
+            homeDockButton(title: "Settings") {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 30))
+            } action: {
                 showSettings = true
             }
 
-            homeDockButton(title: "Chat", systemImage: "message.fill", disabled: !chatUnlocked) {
+            homeDockButton(title: "Chat", disabled: !chatUnlocked) {
+                Image(systemName: "message.fill")
+                    .font(.system(size: 30))
+            } action: {
                 openChatIfAllowed()
             }
             .opacity(chatUnlocked ? 1 : 0.35)
 
-            homeDockButton(title: "Files", systemImage: "folder.fill") {
+            homeDockButton(title: "Files") {
+                Image("Library")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 31)
+            } action: {
                 showFiles = true
             }
         }
@@ -439,15 +459,19 @@ struct HomescreenView: View {
         onOpenChat()
     }
 
-    private func homeDockButton(title: String, systemImage: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+    private func homeDockButton<Icon: View>(
+        title: String,
+        disabled: Bool = false,
+        @ViewBuilder icon: () -> Icon,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: {
             guard !disabled else { return }
             HapticManager.shared.playTypeHaptic()
             action()
         }) {
             VStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 30))
+                icon()
                     .foregroundColor(.white)
                 Text(title)
                     .font(.system(size: 10, weight: .bold))

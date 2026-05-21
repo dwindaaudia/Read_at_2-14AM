@@ -138,7 +138,7 @@ struct MessageBubbleEnhanced: View {
         case .image(let assetName):
             ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
         case .voiceNote(let id):
-            VoiceNotePlayerBubble(filename: id, isFromMe: false)
+            VoiceNotePlayerBubble(filename: id, isFromMe: false, autoPlay: true)
         case .lockedFile(let id):
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
@@ -180,7 +180,7 @@ struct MessageBubbleEnhanced: View {
             ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
                 .fixedSize(horizontal: true, vertical: false)
         case .voiceNote(let id):
-            VoiceNotePlayerBubble(filename: id, isFromMe: true)
+            VoiceNotePlayerBubble(filename: id, isFromMe: true, autoPlay: true)
         case .lockedFile(let id):
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 10) {

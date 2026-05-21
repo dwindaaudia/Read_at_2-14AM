@@ -33,7 +33,7 @@ struct ChoiceKeyboardView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.vertical, 24)
                 .background {
                     ZStack {
                         Self.rowFill

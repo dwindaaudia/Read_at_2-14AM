@@ -121,6 +121,10 @@ struct ChatRoomView: View {
         ZStack {
             VStack(spacing: 0) {
                 chatCustomHeader
+                Rectangle()
+                    .fill(Color.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: 1)
+//                    .padding(.vertical, 8)
                 chatMainStack
             }
             chatOverlayStack
@@ -286,14 +290,14 @@ struct ChatRoomView: View {
             
             Rectangle()
                 .fill(Color.white.opacity(0.22))
-                .frame(width: 1, height: 28)
+                .frame(width: 1, height: 51)
                 .padding(.horizontal, 8)
             
             HStack(spacing: 10) {
                 Image("alex pp")
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 36, height: 36)
+                    .frame(width: 59, height: 59)
                     .clipShape(Rectangle())
                     .overlay(
                         Rectangle()
@@ -461,17 +465,18 @@ struct ChatRoomView: View {
     }
     
     private var chatComposerPlaceholder: some View {
-        HStack(spacing: 10) {
-            Text(gameManager.currentChoices.isEmpty
-                 ? "Waiting for Alex…"
-                 : "Choose a response…")
-            .foregroundColor(Color.black.opacity(0.45))
-            .font(.system(size: 15, weight: .regular))
+        let isWaiting = gameManager.currentChoices.isEmpty
+        let waitingBackground = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
+
+        return HStack(spacing: 10) {
+            Text(isWaiting ? "Waiting for Alex…" : "Choose a response…")
+                .foregroundColor(isWaiting ? .white : Color.black.opacity(0.45))
+                .font(.system(size: 15, weight: .regular))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(white: 0.82))
+        .background(isWaiting ? waitingBackground : Color(white: 0.82))
         .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
         .padding(.horizontal, 10)
     }

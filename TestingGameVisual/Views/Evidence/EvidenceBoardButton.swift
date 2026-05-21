@@ -12,8 +12,11 @@ struct EvidenceBoardButton: View {
     var body: some View {
         Button(action: { showBoard = true }) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 18, weight: .medium))
+                Image("Library")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
                     .foregroundColor(.white.opacity(0.9))
                 if board.newFragmentID != nil {
                     Circle().fill(Color.red).frame(width: 9, height: 9)
