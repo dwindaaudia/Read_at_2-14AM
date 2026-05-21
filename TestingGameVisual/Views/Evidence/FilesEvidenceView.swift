@@ -70,7 +70,7 @@ struct FilesEvidenceView: View {
                                 .font(.helvetica(18, weight: .bold))
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 16)
-                                .padding(.top, 8)
+                                .padding(.top, 25)
                             
                             LazyVGrid(
                                 columns: [
@@ -120,7 +120,7 @@ struct FilesEvidenceView: View {
             ZStack(alignment: .center) {
                 // 1. The Title (Perfectly centered in the ZStack)
                 Text("Files")
-                    .font(.helvetica(17, weight: .bold))
+                    .font(.helvetica(35, weight: .bold))
                     .foregroundColor(.white)
 
                 // 2. The Leading Buttons (Pushed to the left)
@@ -138,17 +138,17 @@ struct FilesEvidenceView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Back")
 
-                    Rectangle()
-                        .fill(Color.white.opacity(0.22))
-                        .frame(width: 1, height: 28)
-                        .padding(.horizontal, 8)
+//                    Rectangle()
+//                        .fill(Color.white.opacity(0.22))
+//                        .frame(width: 1, height: 28)
+//                        .padding(.horizontal, 8)
 
                     // This spacer pushes the button and divider to the leading edge
                     Spacer(minLength: 0)
                 }
             }
             .padding(.horizontal, 4)
-            .padding(.vertical, 6)
+            .padding(.vertical, 25)
             .background(headerBar)
         }
 

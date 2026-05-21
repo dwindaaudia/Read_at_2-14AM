@@ -72,15 +72,20 @@ struct MessageBubbleEnhanced: View {
     @ViewBuilder
     private var incomingRow: some View {
         HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("Alex")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.9))
-                incomingBubbleContent
-                    .layoutPriority(1)
-                Text(message.time)
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundColor(.white.opacity(0.42))
+                HStack(alignment: .bottom, spacing: 4) {
+                    incomingBubbleContent
+                        .layoutPriority(1)
+                    Text(message.time)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(.white.opacity(0.65))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.bottom, 2)
+                }
             }
             .frame(maxWidth: Self.bubbleMax, alignment: .leading)
             Spacer(minLength: 0)
@@ -127,7 +132,7 @@ struct MessageBubbleEnhanced: View {
         switch message.type {
         case .text:
             Text(message.text)
-                .font(.system(size: 16, weight: .regular))
+                .font(.helvetica(17))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14)
@@ -137,6 +142,8 @@ struct MessageBubbleEnhanced: View {
 //                .fixedSize(horizontal: false, vertical: true)
         case .image(let assetName):
             ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
+                .padding(6)
+                .background(Rectangle().fill(Self.alexBubble))
         case .voiceNote(let id):
             VoiceNotePlayerBubble(filename: id, isFromMe: false, autoPlay: true)
         case .lockedFile(let id):
@@ -169,7 +176,7 @@ struct MessageBubbleEnhanced: View {
         switch message.type {
         case .text:
             Text(message.text)
-                .font(.system(size: 16, weight: .regular))
+                .font(.helvetica(17))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14)

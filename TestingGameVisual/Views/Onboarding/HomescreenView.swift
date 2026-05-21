@@ -161,27 +161,27 @@ struct HomescreenView: View {
     private var titleHeader: some View {
         HStack {
             Text("Friday 8")
-                .font(.system(size: 20, weight: .medium))
+                .font(.helvetica(17))
                 .foregroundColor(.white)
                 .padding(.trailing, 18)
 
             ZStack {
                 Text(clockDigits)
-                    .font(.system(size: 56, weight: .black))
+                    .font(.helvetica(45, weight: .bold))
                     .foregroundColor(.red.opacity(0.55))
                     .offset(x: glitchOffsetX + 3, y: 2)
                 Text(clockDigits)
-                    .font(.system(size: 56, weight: .black))
+                    .font(.helvetica(45, weight: .bold))
                     .foregroundColor(.cyan.opacity(0.35))
                     .offset(x: -glitchOffsetX - 2, y: -2)
                 Text(clockDigits)
-                    .font(.system(size: 56, weight: .black))
+                    .font(.helvetica(45, weight: .bold))
                     .foregroundColor(.white)
             }
             .opacity(titleOpacity)
 
             Text(chapterLabel)
-                .font(.system(size: 20, weight: .medium))
+                .font(.helvetica(17))
                 .foregroundColor(.white)
                 .padding(.leading, 18)
         }
@@ -330,7 +330,7 @@ struct HomescreenView: View {
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
-        .padding(.bottom, 32)
+        .padding(.bottom, 64)
         .frame(maxWidth: .infinity)
         .background {
             homeScreenDockBarColor

@@ -38,19 +38,15 @@ struct ChoiceKeyboardView: View {
                     ZStack {
                         Self.rowFill
                         HStack(spacing: 0) {
-                            Rectangle()
-                                .fill(Self.borderAccent)
-                                .frame(width: 3)
+                            
                             Spacer(minLength: 0)
-                            Rectangle()
-                                .fill(Self.borderAccent)
-                                .frame(width: 3)
+                            
                         }
                     }
                 }
                 .overlay(
                     Rectangle()
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                        .stroke(Color.black.opacity(1), lineWidth: 3)
                 )
         }
         .buttonStyle(.plain)

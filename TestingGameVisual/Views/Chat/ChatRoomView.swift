@@ -288,10 +288,10 @@ struct ChatRoomView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             
-            Rectangle()
-                .fill(Color.white.opacity(0.22))
-                .frame(width: 1, height: 51)
-                .padding(.horizontal, 8)
+//            Rectangle()
+//                .fill(Color.white.opacity(0.22))
+//                .frame(width: 1, height: 51)
+//                .padding(.horizontal, 8)
             
             HStack(spacing: 10) {
                 Image("alex pp")
@@ -306,10 +306,10 @@ struct ChatRoomView: View {
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Alex")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.helvetica(25, weight: .bold))
                         .foregroundColor(.white)
                     Text(alexStatusText)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.helvetica(14))
                         .foregroundColor(.white.opacity(0.62))
                 }
                 .fixedSize(horizontal: true, vertical: true)
@@ -362,8 +362,8 @@ struct ChatRoomView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, showChoiceStrip ? 10 : 12)
-                .padding(.bottom, 8)
+                .padding(.top, showChoiceStrip ? 20 : 22)
+                .padding(.bottom, 20)
                 .background(chatFooterBarGradient)
             }
         }
@@ -377,11 +377,11 @@ struct ChatRoomView: View {
                         switch row {
                         case .chapter(let title):
                             Text(title)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.black.opacity(0.82))
+                                .font(.helvetica(15, weight: .semibold))
+                                .foregroundColor(.white)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 5)
-                                .background(Color(red: 0.871, green: 0.871, blue: 0.871))
+                                .background(Color.white.opacity(0.22))
                                 .frame(maxWidth: .infinity)
                         case .message(let message):
                             MessageBubbleEnhanced(message: message)
@@ -477,7 +477,10 @@ struct ChatRoomView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(isWaiting ? waitingBackground : Color(white: 0.82))
-        .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+        .overlay(
+            Rectangle()
+                .stroke(isWaiting ? Color.white : Color.black.opacity(0.08), lineWidth: 1)
+        )
         .padding(.horizontal, 10)
     }
     
