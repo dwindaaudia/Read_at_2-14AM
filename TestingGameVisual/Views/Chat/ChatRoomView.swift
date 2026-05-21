@@ -75,9 +75,6 @@ struct ChatRoomView: View {
         gameManager.currentScene != "ENDING" && !gameManager.currentChoices.isEmpty
     }
 
-//    private var chatHeaderBarColor: Color {
-//        Color(red: 0.11, green: 0.0, blue: 0.02)
-//    }
     private var chatHeaderBarGradient: LinearGradient {
         // Translating Hex #600606 to RGB
         let baseColor = Color(red: 96 / 255.0, green: 6 / 255.0, blue: 6 / 255.0)
@@ -121,14 +118,14 @@ struct ChatRoomView: View {
     
     @ViewBuilder
     private var chatRoomNavigationContent: some View {
-        ZStack(alignment: .bottom) {
-            chatMainStack
+        ZStack {
+            VStack(spacing: 0) {
+                chatCustomHeader
+                chatMainStack
+            }
             chatOverlayStack
         }
         .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            chatCustomHeader
-        }
         .background {
             ZStack {
                 Image("red-overlay")
@@ -318,7 +315,7 @@ struct ChatRoomView: View {
             
             EvidenceBoardButton(gameManager: gameManager)
                 .buttonStyle(.plain)
-                .padding(.trailing, 4)
+                .padding(.trailing, 10)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
@@ -395,6 +392,7 @@ struct ChatRoomView: View {
                     
                     Color.clear.frame(height: 1).id("bottomAnchor")
                 }
+                .padding(.top, 10)
                 .padding(.bottom, chapter1ChatBottomInsetForEnding)
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
