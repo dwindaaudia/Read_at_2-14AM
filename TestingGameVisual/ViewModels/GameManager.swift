@@ -413,9 +413,6 @@ class GameManager: ObservableObject {
         guard !currentChoices.isEmpty else { return }
         guard currentScene != "ENDING" else { return }
 
-        if choice.text == "Play Again" { restartGame(); return }
-        if choice.text == "Quit Game"  { shouldQuit = true; return }
-
         switch choice.type {
         case .trust:
             trustCount += 1
@@ -574,6 +571,10 @@ class GameManager: ObservableObject {
                SystemLanguageModel.default.isAvailable,
                let session = session {
                 do {
+                    
+                    // Token optimization dynamically (to prevent limits)
+                    await optimizeTokenCapacityBeforeReply()
+                    
                     let promptData = currentState.getPromptData()
                     let loopCount = AppSettings.shared.totalClears
                     let loopContext = loopCount > 0
@@ -608,6 +609,18 @@ class GameManager: ObservableObject {
                     let response = try await session.respond(to: prompt, generating: AlexResponse.self)
                     finalReplies = sanitizedAlexReplies(response.content.replies)
                     finalChoices = response.content.choices
+                } catch LanguageModelSession.GenerationError.guardrailViolation {
+                    // Capturing violations and turning them into features
+                    print("Guardrail triggered! Switching to narrative failure mode.")
+                    handleGuardrailGlitchFallback()
+                    return // Hentikan alur normal karena layout sudah di-handle manual oleh fallback
+                    
+                } catch LanguageModelSession.GenerationError.exceededContextWindowSize {
+                    // Cadangan Darurat jika token bocor di luar buffer awal
+                    print("Session full! Performing emergency cleanup.")
+                    messages.removeFirst(min(messages.count, 4))
+                    rebuildSessionFromHistory(messages)
+                    
                 } catch {
                     print("LLM Error: \(error)")
                 }
@@ -655,6 +668,105 @@ class GameManager: ObservableObject {
             currentChoices = []
         }
     }
+    
+    // MARK: - Advanced Token & Guardrail Protection (iOS 18+)
+        
+        /// Memeriksa kapasitas token saat ini menggunakan API resmi Apple.
+        /// Jika mendekati limit, chat log lama akan dipangkas secara otomatis (Rolling Refresh).
+        @available(iOS 18.0, macOS 15.0, *)
+        private func optimizeTokenCapacityBeforeReply() async {
+    #if canImport(FoundationModels)
+            let model = SystemLanguageModel.default
+            let safetyBuffer = 3200 // Batas aman sebelum jebol limit 4096 token
+            
+            var currentTokenCount = 0
+            do {
+                // Bangun Transcript sementara dari riwayat pesan saat ini
+                let tempTranscript = Self.buildSeededTranscript(persona: alexPersonaInstructions, history: messages)
+                if #available(iOS 26.4, *) {
+                    currentTokenCount = try await model.tokenCount(for: tempTranscript)
+                    print("Current Token Count: \(currentTokenCount) / 4096")
+                } else {
+                    // Fallback on earlier versions
+                }
+            } catch {
+                print("Failed to count tokens: \(error)")
+                return
+            }
+            
+            var trimmedMessages = messages
+            var structuralChanged = false
+            
+            // Lakukan pemangkasan sepasang pesan (Player & Alex) jika mendesak
+            while currentTokenCount > safetyBuffer && trimmedMessages.count > 4 {
+                if let firstPlayerIdx = trimmedMessages.firstIndex(where: { $0.type == .text && $0.isFromMe }),
+                   let firstAlexIdx = trimmedMessages.firstIndex(where: { $0.type == .text && !$0.isFromMe }) {
+                    
+                    // Hapus chat log lama dari array ramah memori
+                    trimmedMessages.remove(at: max(firstPlayerIdx, firstAlexIdx))
+                    trimmedMessages.remove(at: min(firstPlayerIdx, firstAlexIdx))
+                    structuralChanged = true
+                } else {
+                    break
+                }
+                
+                // Hitung ulang token pasca pemotongan
+                do {
+                    let tempTranscript = Self.buildSeededTranscript(persona: alexPersonaInstructions, history: trimmedMessages)
+                    if #available(iOS 26.4, *) {
+                        currentTokenCount = try await model.tokenCount(for: tempTranscript)
+                        print("Trimming old messages, Current Token Count: \(currentTokenCount) / 4096")
+                    } else {
+                        // Fallback on earlier versions
+                    }
+                } catch {
+                    break
+                }
+            }
+            
+            // Jika terjadi pemangkasan, perbarui session dengan ingatan yang sudah dirampingkan
+            if structuralChanged {
+                self.messages = trimmedMessages
+                self.rebuildSessionFromHistory(trimmedMessages)
+                self.triggerSystemMessage("⚠️ SYSTEM: LOGS DEFRAGMENTED TO OPTIMIZE MEMORY CHANNELS.")
+                
+                print("Session has been refreshed! Current Token Count: \(currentTokenCount) / 4096")
+            }
+    #endif
+        }
+        
+        /// Mengubah kegagalan sensor bawaan Apple menjadi narasi horror psikologis yang imersif
+        private func handleGuardrailGlitchFallback() {
+            self.isTyping = false
+            
+            // Naikkan intensitas ketakutan visual game
+            self.denialScore = min(20, self.denialScore + 3)
+            self.glitchTrigger += 2
+            self.crackTrigger += 1
+            
+            // Putar haptic glitch instan
+            HapticManager.shared.playGlitchHaptic()
+            
+            // Tampilkan pesan sistem terdistorsi seolah-olah Alex sedang disensor secara paksa
+            triggerSystemMessage("🚨 ERROR: SIGNAL INTERFERENCE DETECTED. DIALOGUE SEGMENT REMOVED.")
+            
+            let safetyBreakers = [
+                "kamu... tidak boleh... mendengarkan...",
+                "sinyalnya... dingin sekali di sini...",
+                "mereka menyaring suaraku...",
+                "jangan biarkan mereka memutus kita..."
+            ]
+            
+            // Alex mengirim pesan darurat terfragmentasi
+            addAlexMessage(safetyBreakers.randomElement()!, type: .text)
+            
+            // Paksa keyboard memunculkan pilihan respons baru bertema panik agar game tidak stuck
+            setChoices([
+                "Alex?! Apa yang terjadi dengan pesanmu?",
+                "Siapa yang mencoba menyaring suaramu?!",
+                "Sistem ini mulai membuatku takut."
+            ])
+        }
 
     // MARK: - Helpers
 

@@ -82,26 +82,7 @@ struct SettingsView: View {
 
                     // ── Data Section ─────────────────────────────────────────
                     SettingsSection(title: "DATA") {
-                        VStack(spacing: 12) {
-                            // Reset tutorial
-                            Button {
-                                settings.resetProgress()
-                                HapticManager.shared.playTypeHaptic()
-                            } label: {
-                                HStack {
-                                    Image(systemName: "arrow.counterclockwise")
-                                        .foregroundColor(.orange)
-                                    Text("Reset Tutorial")
-                                        .foregroundColor(.orange)
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 13)
-                                .background(Color.orange.opacity(0.08))
-                                .cornerRadius(10)
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.2), lineWidth: 1))
-                            }
-
+//                        VStack(spacing: 12) {
                             // Reset all progress
                             Button {
                                 showResetConfirm = true
@@ -135,7 +116,7 @@ struct SettingsView: View {
                                 }
                                 Button("Cancel", role: .cancel) {}
                             }
-                        }
+//                        }
                     }
 
                     // ── Version ──────────────────────────────────────────────

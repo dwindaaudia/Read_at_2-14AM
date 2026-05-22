@@ -25,6 +25,35 @@ struct TitleVideoView: View {
                 ProgressView()
                     .tint(.white)
             }
+            
+            // Button to skip video intro
+            if player != nil && !didComplete {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            HapticManager.shared.playTypeHaptic()
+                            completeIntro()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.right.2")
+                            }
+                            .font(.system(size: 12, weight: .bold))
+                            .tracking(1.5)
+                            .foregroundColor(.white.opacity(0.6))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.4))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.top, 60)
+                .padding(.trailing, 25)
+                .transition(.opacity)
+            }
         }
         .task {
             loadPlayerIfNeeded()
