@@ -18,30 +18,26 @@ struct TutorialOverlayView: View {
                 // Header
                 VStack(spacing: 6) {
                     Text("INCOMING TRANSMISSION")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(.helvetica(10))
+                        .fontWeight(.semibold)
                         .foregroundColor(.gray)
                         .tracking(3)
 
                     Text("Your words\nshape his world.")
-                        .font(.system(size: 26, weight: .black))
+                        .font(.helvetica(26))
+                        .fontWeight(.bold)
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
-                }
-
-                // Choice color guide
-                VStack(spacing: 14) {
-                    TutorialChoiceRow(color: .blue,  label: "TRUST",
-                                     description: "Believe Alex. Help him. Empathy over fear.")
-                    TutorialChoiceRow(color: .red,   label: "REJECT",
-                                     description: "Deny the truth. Fight back. Blame him.")
-                    TutorialChoiceRow(color: .gray,  label: "AVOID",
-                                     description: "Hesitate. Ignore. Pretend nothing is wrong.")
+                    
+                    Text("Turn your volume up — the sounds you'll encounter are not just atmosphere, they are evidence.\nEvery response you give shapes what happens next.\nThere are no wrong answers, but every choice leaves a trace.\nSomeone has been trying to reach you. Every night. At 2:14 AM.\nPay attention.")
+                        .font(.helvetica(14))
+                        .foregroundColor(.white)
                 }
 
                 // Tap to dismiss cue
                 Text("Tap anywhere to begin")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.helvetica(12))
                     .foregroundColor(.gray.opacity(0.55))
                     .opacity(pulse ? 1.0 : 0.4)
                     .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)

@@ -48,6 +48,7 @@ struct HomescreenView: View {
     @State private var showSettings = false
     @State private var showFiles = false
     @State private var glitchTimer: Timer?
+    @State private var showTutorial = false
 
     @State private var clockDigits = "2:14"
     @State private var brightnessDim: Double = 0
@@ -72,59 +73,71 @@ struct HomescreenView: View {
     }
 
     var body: some View {
-        ZStack {
-            Image("ls_wallpaper")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .ignoresSafeArea()
-                .opacity(0.5)
-
-            Color(red: 0.133, green: 0.0, blue: 0.0)
-                .opacity(0.6)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-
-            Color.black.opacity(brightnessDim).ignoresSafeArea()
-            Color.red.opacity(glitchFlash).ignoresSafeArea().allowsHitTesting(false)
-
-            scanlineOverlay
-
-            VStack(spacing: 0) {
-                titleHeader
-                Rectangle()
-                    .fill(Color.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, maxHeight: 1)
-//                    .padding(.vertical, 8)
-                if shouldShowNotificationsSection {
-                    notificationsSection
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                } else {
-                    Spacer(minLength: 0)
+        NavigationStack {
+            ZStack {
+                Image("ls_wallpaper")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .ignoresSafeArea()
+                
+                Color(red: 0.133, green: 0.0, blue: 0.0)
+                    .opacity(0.3)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                
+                Color.black.opacity(brightnessDim).ignoresSafeArea()
+                Color.red.opacity(glitchFlash).ignoresSafeArea().allowsHitTesting(false)
+                
+                VStack(spacing: 0) {
+                    titleHeader
+                    Rectangle()
+                        .fill(Color.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, maxHeight: 1)
+                    
+                    if shouldShowNotificationsSection {
+                        notificationsSection
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                    Rectangle()
+                        .fill(Color.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, maxHeight: 1)
+                    dockSection
                 }
-                Rectangle()
-                    .fill(Color.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, maxHeight: 1)
-//                    .padding(.vertical, 8)
-                dockSection
+                if showTutorial {
+                    TutorialOverlayView(isVisible: $showTutorial)
+                        .transition(.opacity)
+                        .zIndex(90)
+                        .onDisappear {
+                            // Simpan status bahwa player sudah melihat tutorial
+                            AppSettings.shared.hasSeenTutorial = true
+                            
+                            // Lanjutkan memunculkan notifikasi Alex
+                            runNewPlayerIntro()
+                        }
+                }
             }
-        }
-        .onAppear {
-            withAnimation(.easeIn(duration: 1.0)) { titleOpacity = 1.0 }
-            withAnimation(.easeIn(duration: 0.8).delay(0.4)) { buttonsOpacity = 1.0 }
-            startGlitchLoop()
-            configureHomeOnAppear()
-            gameManager.resumePendingAlexReplyIfNeeded()
-            // Audit §10.1: from the home hub the player is one tap away from chat — warm
-            // the on-device LLM proactively so the first reply doesn't pay cold-start.
-            gameManager.prewarmAIIfAvailable()
-        }
-        .onChange(of: gameManager.messages) { _, _ in
-            if !gameManager.messages.isEmpty { chatUnlocked = true }
-        }
-        .onDisappear { glitchTimer?.invalidate() }
-        .sheet(isPresented: $showSettings) { SettingsView(onResetAll: onResetAll) }
-        .sheet(isPresented: $showFiles) {
-            FilesEvidenceView(gameManager: gameManager)
+            .onAppear {
+                withAnimation(.easeIn(duration: 1.0)) { titleOpacity = 1.0 }
+                withAnimation(.easeIn(duration: 0.8).delay(0.4)) { buttonsOpacity = 1.0 }
+                startGlitchLoop()
+                configureHomeOnAppear()
+                gameManager.resumePendingAlexReplyIfNeeded()
+                // Audit §10.1: from the home hub the player is one tap away from chat — warm
+                // the on-device LLM proactively so the first reply doesn't pay cold-start.
+                gameManager.prewarmAIIfAvailable()
+            }
+            .onChange(of: gameManager.messages) { _, _ in
+                if !gameManager.messages.isEmpty { chatUnlocked = true }
+            }
+            .onDisappear { glitchTimer?.invalidate() }
+            .navigationDestination(isPresented: $showSettings) {
+                SettingsView(onResetAll: onResetAll)
+            }
+            .navigationDestination(isPresented: $showFiles) {
+                FilesEvidenceView(gameManager: gameManager)
+            }
         }
     }
     private var lockScreenHeaderBarGradient: LinearGradient {
@@ -420,12 +433,21 @@ struct HomescreenView: View {
         chatUnlocked = false
         ghostPhaseHidden = false
         showAlexNotification = false
-        runNewPlayerIntro()
+        
+        if !AppSettings.shared.hasSeenTutorial {
+            // Beri sedikit jeda 0.5 detik agar transisi buka aplikasi terasa mulus, lalu buka tutorial
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                withAnimation { showTutorial = true }
+            }
+        } else {
+            // Jika sudah pernah lihat tutorial, langsung mulai sekuens horor 2:14
+            runNewPlayerIntro()
+        }
     }
 
     private func runNewPlayerIntro() {
         // First-time flow: clock flips to 2:14 + glitch → short beat → ghost chats dismiss → pause → Alex notification.
-        let clockAndGlitch: TimeInterval = 5.0
+        let clockAndGlitch: TimeInterval = 1.5
         let pauseAfterGlitch: TimeInterval = 0.42
         let pauseBeforeAlex: TimeInterval = 0.72
 
@@ -434,23 +456,30 @@ struct HomescreenView: View {
             runGlitchBurst()
             HapticManager.shared.playGlitchHaptic()
             withAnimation(.easeInOut(duration: 0.1)) { glitchFlash = 0.38 }
+            
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                 glitchFlash = 0
             }
+            
             DispatchQueue.main.asyncAfter(deadline: .now() + pauseAfterGlitch) {
                 withAnimation(.easeOut(duration: 0.48)) {
                     ghostPhaseHidden = true
                 }
+                
                 DispatchQueue.main.asyncAfter(deadline: .now() + pauseBeforeAlex) {
-                    withAnimation(.spring(response: 0.58, dampingFraction: 0.82)) {
-                        showAlexNotification = true
-                    }
-                    AudioManager.shared.playSound("notification_sfx")
-                    HapticManager.shared.playGlitchHaptic()
-                    chatUnlocked = true
+                    triggerAlexNotification()
                 }
             }
         }
+    }
+    
+    private func triggerAlexNotification() {
+        withAnimation(.spring(response: 0.58, dampingFraction: 0.82)) {
+            showAlexNotification = true
+        }
+        AudioManager.shared.playSound("notification_sfx")
+        HapticManager.shared.playGlitchHaptic()
+        chatUnlocked = true
     }
 
     private func openChatIfAllowed() {

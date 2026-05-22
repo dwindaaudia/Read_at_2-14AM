@@ -21,39 +21,31 @@ struct VoiceNotePlayerBubble: View {
                     .font(.system(size: 32))
                     .foregroundColor(.white)
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .center, spacing: 2.5) {
-                    ForEach(barHeights.indices, id: \.self) { i in
-                        let fraction = Double(i) / Double(barHeights.count)
-                        let isPast = fraction <= controller.progress
-                        Capsule()
-                            .fill(waveColor(isPast: isPast))
-                            .frame(width: 3, height: barHeights[i])
-                            .scaleEffect(
-                                controller.isPlaying && isPast ? 1.0 : 0.6,
-                                anchor: .bottom
-                            )
-                            .animation(
-                                controller.isPlaying
-                                ? .easeInOut(duration: 0.15).delay(Double(i) * 0.01)
-                                : .easeOut(duration: 0.2),
-                                value: controller.isPlaying
-                            )
-                    }
-                }
-                .frame(height: 28)
-
-                HStack {
-                    Text(formattedTime(controller.duration * controller.progress))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isFromMe ? .white.opacity(0.85) : .white.opacity(0.85))
-                    Spacer()
-                    Text(formattedTime(controller.duration))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isFromMe ? .white.opacity(0.65) : .white.opacity(0.65))
+            HStack(alignment: .center, spacing: 2.5) {
+                ForEach(barHeights.indices, id: \.self) { i in
+                    let fraction = Double(i) / Double(barHeights.count)
+                    let isPast = fraction <= controller.progress
+                    Capsule()
+                        .fill(waveColor(isPast: isPast))
+                        .frame(width: 3, height: barHeights[i])
+                        .scaleEffect(
+                            controller.isPlaying && isPast ? 1.0 : 0.6,
+                            anchor: .bottom
+                        )
+                        .animation(
+                            controller.isPlaying
+                            ? .easeInOut(duration: 0.15).delay(Double(i) * 0.01)
+                            : .easeOut(duration: 0.2),
+                            value: controller.isPlaying
+                        )
                 }
             }
+            .frame(height: 28)
+            
+            // vn duration
+            Text(formattedTime(controller.progress == 0 ? controller.duration : (controller.duration * controller.progress)))
+                .font(.helvetica(10))
+                .foregroundColor(.white.opacity(0.85))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

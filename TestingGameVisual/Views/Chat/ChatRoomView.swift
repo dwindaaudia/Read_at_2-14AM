@@ -124,7 +124,7 @@ struct ChatRoomView: View {
                 Rectangle()
                     .fill(Color.white.opacity(0.5))
                     .frame(maxWidth: .infinity, maxHeight: 1)
-//                    .padding(.vertical, 8)
+                
                 chatMainStack
             }
             chatOverlayStack
@@ -136,7 +136,7 @@ struct ChatRoomView: View {
                     .resizable()
                     .scaledToFill()
                 Color.black
-                    .opacity(0.6)
+                    .opacity(0.7)
             }
             .ignoresSafeArea()
         }
@@ -147,6 +147,15 @@ struct ChatRoomView: View {
             // they're about to interact, and the first reply pays the cold-start cost.
             gameManager.prewarmAIIfAvailable()
             resumeAmbientEffectsIfNeeded()
+            
+            if !AppSettings.shared.hasSeenTutorial {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation(.easeIn(duration: 0.4)) {
+                        showTutorial = true
+                    }
+                }
+            }
+            
             if gameManager.currentScene == "ENDING", gameManager.isEndingFinished {
                 scheduleChapter1EndingSequenceIfNeeded()
             }
@@ -191,9 +200,13 @@ struct ChatRoomView: View {
             }
         }
         .simultaneousGesture(
-            DragGesture(minimumDistance: 40, coordinateSpace: .local)
+            DragGesture(minimumDistance: 20, coordinateSpace: .global)
                 .onEnded { value in
-                    if value.translation.width > 100 && abs(value.translation.height) < 120 {
+                    let horizontalSwipe = value.translation.width
+                    let predictedHorizontal = value.predictedEndTranslation.width
+                    let verticalSwipe = abs(value.translation.height)
+                    
+                    if (horizontalSwipe > 50 || predictedHorizontal > 150) && verticalSwipe < 60 {
                         HapticManager.shared.playTypeHaptic()
                         goHome()
                     }
@@ -263,7 +276,6 @@ struct ChatRoomView: View {
                         
                         Spacer(minLength: 24)
                     }
-                    // Membiarkan VStack mematuhi safe area atas agar header tidak tertutup Notch/Dynamic Island
                 }
                 .transition(.opacity)
                 .zIndex(150)
@@ -287,11 +299,6 @@ struct ChatRoomView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
-            
-//            Rectangle()
-//                .fill(Color.white.opacity(0.22))
-//                .frame(width: 1, height: 51)
-//                .padding(.horizontal, 8)
             
             HStack(spacing: 10) {
                 Image("alex pp")
@@ -403,7 +410,6 @@ struct ChatRoomView: View {
                         proxy.scrollTo("bottomAnchor", anchor: .bottom)
                     }
                 }
-                // CHANGE
                 .onChange(of: gameManager.messages) { _, newMessages in
                     withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
                     
@@ -488,6 +494,12 @@ struct ChatRoomView: View {
     
     @ViewBuilder
     private var chatOverlayStack: some View {
+        if showTutorial {
+            TutorialOverlayView(isVisible: $showTutorial)
+                .transition(.opacity)
+                .zIndex(90)
+        }
+        
         MemoryBleedOverlayView(
             denialScore:         gameManager.denialScore,
             recentAlexMessages:  gameManager.recentAlexReplies
@@ -503,17 +515,6 @@ struct ChatRoomView: View {
             crackTrigger:  gameManager.crackTrigger
         )
         .allowsHitTesting(false)
-
-
-        if showActTransition {
-            ActTransitionView(
-                actNumber: transitionActNumber,
-                actTitle:  actTitleName(for: transitionActNumber),
-                isVisible: $showActTransition
-            )
-            .transition(.opacity)
-            .zIndex(80)
-        }
         
         if gameManager.currentScene == "ENDING", gameManager.isEndingFinished,
            chapter1EndingPhase == .chapterFooter || chapter1EndingPhase == .comingSoonTeaser {

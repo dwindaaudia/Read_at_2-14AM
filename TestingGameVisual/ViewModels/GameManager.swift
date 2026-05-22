@@ -291,9 +291,8 @@ class GameManager: ObservableObject {
     }
 
     var currentPsycheLevel: PsycheLevel {
-        if denialScore < -7  { return .low }
-        if denialScore > 12  { return .extreme }
-        if denialScore > 6   { return .high }
+        if denialScore <= -7 { return .low }
+        if denialScore >= 7  { return .high }
         return .medium
     }
 

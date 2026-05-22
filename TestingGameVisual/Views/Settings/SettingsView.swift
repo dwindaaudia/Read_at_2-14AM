@@ -19,7 +19,7 @@ struct SettingsView: View {
 
                     // ── Header ───────────────────────────────────────────────
                     Text("SETTINGS")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.helvetica(11, weight: .bold))
                         .foregroundColor(.gray)
                         .tracking(5)
                         .padding(.top, 50)
@@ -121,7 +121,7 @@ struct SettingsView: View {
 
                     // ── Version ──────────────────────────────────────────────
                     Text("READ AT 2:14 AM  ·  v1.0")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.helvetica(10))
                         .foregroundColor(.gray.opacity(0.35))
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
@@ -142,6 +142,22 @@ struct SettingsView: View {
             .padding(16),
             alignment: .topTrailing
         )
+        
+        .toolbar(.hidden, for: .navigationBar)
+        
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20, coordinateSpace: .global)
+                .onEnded { value in
+                    let horizontalSwipe = value.translation.width
+                    let predictedHorizontal = value.predictedEndTranslation.width
+                    let verticalSwipe = abs(value.translation.height)
+                    
+                    if (horizontalSwipe > 50 || predictedHorizontal > 150) && verticalSwipe < 60 {
+                        HapticManager.shared.playTypeHaptic()
+                        dismiss()
+                    }
+                }
+        )
     }
 }
 
@@ -154,7 +170,7 @@ private struct SettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.helvetica(10, weight: .bold))
                 .foregroundColor(.gray)
                 .tracking(3)
             content
@@ -168,6 +184,7 @@ private struct SettingsSlider: View {
     let label: String
     let icon: String
     @Binding var value: Float
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -180,7 +197,7 @@ private struct SettingsSlider: View {
                     .foregroundColor(.white)
                 Spacer()
                 Text("\(Int(value * 100))%")
-                    .font(.caption.monospaced())
+                    .font(.helvetica(11))
                     .foregroundColor(.gray)
             }
             Slider(value: $value, in: 0...1)
