@@ -31,18 +31,18 @@ struct AlexNotificationCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Alex")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.helvetica(20, weight: .bold))
                         .foregroundColor(.white)
 
                     Spacer()
 
                     Text(time)
-                        .font(.system(size: 16))
+                        .font(.helvetica(14))
                         .foregroundColor(.white)
                 }
 
                 Text(message)
-                    .font(.system(size: 16))
+                    .font(.helvetica(14))
                     .foregroundColor(.white)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)

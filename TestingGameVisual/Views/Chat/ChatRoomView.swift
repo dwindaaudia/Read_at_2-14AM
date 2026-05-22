@@ -121,6 +121,10 @@ struct ChatRoomView: View {
         ZStack {
             VStack(spacing: 0) {
                 chatCustomHeader
+                Rectangle()
+                    .fill(Color.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: 1)
+//                    .padding(.vertical, 8)
                 chatMainStack
             }
             chatOverlayStack
@@ -284,16 +288,16 @@ struct ChatRoomView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             
-            Rectangle()
-                .fill(Color.white.opacity(0.22))
-                .frame(width: 1, height: 28)
-                .padding(.horizontal, 8)
+//            Rectangle()
+//                .fill(Color.white.opacity(0.22))
+//                .frame(width: 1, height: 51)
+//                .padding(.horizontal, 8)
             
             HStack(spacing: 10) {
                 Image("alex pp")
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 36, height: 36)
+                    .frame(width: 59, height: 59)
                     .clipShape(Rectangle())
                     .overlay(
                         Rectangle()
@@ -302,10 +306,10 @@ struct ChatRoomView: View {
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Alex")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.helvetica(25, weight: .bold))
                         .foregroundColor(.white)
                     Text(alexStatusText)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.helvetica(14))
                         .foregroundColor(.white.opacity(0.62))
                 }
                 .fixedSize(horizontal: true, vertical: true)
@@ -358,8 +362,8 @@ struct ChatRoomView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, showChoiceStrip ? 10 : 12)
-                .padding(.bottom, 8)
+                .padding(.top, showChoiceStrip ? 20 : 22)
+                .padding(.bottom, 20)
                 .background(chatFooterBarGradient)
             }
         }
@@ -373,11 +377,11 @@ struct ChatRoomView: View {
                         switch row {
                         case .chapter(let title):
                             Text(title)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.black.opacity(0.82))
+                                .font(.helvetica(15, weight: .semibold))
+                                .foregroundColor(.white)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 5)
-                                .background(Color(red: 0.871, green: 0.871, blue: 0.871))
+                                .background(Color.white.opacity(0.22))
                                 .frame(maxWidth: .infinity)
                         case .message(let message):
                             MessageBubbleEnhanced(message: message)
@@ -461,18 +465,22 @@ struct ChatRoomView: View {
     }
     
     private var chatComposerPlaceholder: some View {
-        HStack(spacing: 10) {
-            Text(gameManager.currentChoices.isEmpty
-                 ? "Waiting for Alex…"
-                 : "Choose a response…")
-            .foregroundColor(Color.black.opacity(0.45))
-            .font(.system(size: 15, weight: .regular))
+        let isWaiting = gameManager.currentChoices.isEmpty
+        let waitingBackground = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
+
+        return HStack(spacing: 10) {
+            Text(isWaiting ? "Waiting for Alex…" : "Choose a response…")
+                .foregroundColor(isWaiting ? .white : Color.black.opacity(0.45))
+                .font(.system(size: 15, weight: .regular))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(white: 0.82))
-        .overlay(Rectangle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+        .background(isWaiting ? waitingBackground : Color(white: 0.82))
+        .overlay(
+            Rectangle()
+                .stroke(isWaiting ? Color.white : Color.black.opacity(0.08), lineWidth: 1)
+        )
         .padding(.horizontal, 10)
     }
     

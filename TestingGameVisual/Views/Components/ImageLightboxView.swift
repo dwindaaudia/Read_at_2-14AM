@@ -13,11 +13,13 @@ struct ImageLightboxView: View {
     @Namespace private var ns
 
     private var captionBackground: Color {
-        thumbnailCornerRadius <= 4 ? Color(white: 0.94) : Color(UIColor.secondarySystemBackground)
+        // In chat (sharp corners) the image sits inside a colored message bubble;
+        // let the bubble color show through so the caption blends with the bubble.
+        thumbnailCornerRadius <= 4 ? Color.clear : Color(UIColor.secondarySystemBackground)
     }
 
     private var captionForeground: Color {
-        thumbnailCornerRadius <= 4 ? Color.black.opacity(0.78) : Color.primary
+        thumbnailCornerRadius <= 4 ? Color.white.opacity(0.85) : Color.primary
     }
 
     var body: some View {
