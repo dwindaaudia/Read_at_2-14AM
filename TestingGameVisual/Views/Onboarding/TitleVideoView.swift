@@ -8,6 +8,7 @@ import AVKit
 struct TitleVideoView: View {
     let onComplete: () -> Void
 
+    @AppStorage("hasWatchedIntro") private var hasWatchedIntro: Bool = false
     @State private var player: AVPlayer?
     @State private var didComplete = false
     @State private var showMissingVideoMessage = false
@@ -55,6 +56,13 @@ struct TitleVideoView: View {
                 .transition(.opacity)
             }
         }
+        .onAppear {
+            if hasWatchedIntro {
+                completeIntro()
+            } else {
+                loadPlayerIfNeeded()
+            }
+        }
         .task {
             loadPlayerIfNeeded()
         }
@@ -64,6 +72,17 @@ struct TitleVideoView: View {
         .onDisappear {
             player?.pause()
         }
+    }
+    
+    private func completeIntro() {
+        guard !didComplete else { return }
+        didComplete = true
+        
+        // Tandai bahwa video sudah ditonton agar tidak muncul lagi
+        hasWatchedIntro = true
+        
+        player?.pause()
+        onComplete()
     }
 
     // MARK: Subviews
@@ -114,13 +133,6 @@ struct TitleVideoView: View {
             completeIntro()
             break
         }
-    }
-
-    private func completeIntro() {
-        guard !didComplete else { return }
-        didComplete = true
-        player?.pause()
-        onComplete()
     }
 }
 

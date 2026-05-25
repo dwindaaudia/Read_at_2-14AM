@@ -506,6 +506,8 @@ class GameManager: ObservableObject {
         hasSentEndingFile   = false
         shouldQuit          = false
         isEndingFinished    = false
+        
+        UserDefaults.standard.set(false, forKey: "hasWatchedIntro")
 
         EvidenceBoardManager.shared.resetFragments()
 

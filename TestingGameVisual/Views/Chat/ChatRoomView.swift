@@ -338,17 +338,6 @@ struct ChatRoomView: View {
     @ViewBuilder
     private var chatMainStack: some View {
         VStack(spacing: 0) {
-            if AppSettings.shared.debugBarVisible && gameManager.currentScene != "ENDING" {
-                DebugStatusView(
-                    denialScore:  gameManager.denialScore,
-                    currentAct:   gameManager.currentAct,
-                    currentScene: gameManager.currentScene,
-                    modelStatus:  gameManager.modelStatusText
-                )
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
-            
             chatMessagesScroll
             
             if gameManager.currentScene != "ENDING" {
@@ -529,11 +518,12 @@ struct ChatRoomView: View {
     private var chapter1EndChapterFooterBanner: some View {
         VStack(spacing: 6) {
             Text("END OF CHAPTER 1")
-                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .font(.helvetica(11))
+                .fontWeight(.heavy)
                 .tracking(2.5)
                 .foregroundColor(.white.opacity(0.92))
-            Text("Acts I–III are all part of Chapter 1. This build is the full Chapter 1 arc.")
-                .font(.system(size: 12, weight: .regular))
+            Text("This build is the full Chapter 1 arc.")
+                .font(.helvetica(12))
                 .foregroundColor(.white.opacity(0.56))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 4)
@@ -565,14 +555,16 @@ struct ChatRoomView: View {
                         Spacer(minLength: 0)
                         VStack(spacing: 14) {
                             Text("Coming soon")
-                                .font(.system(size: 26, weight: .bold, design: .serif))
+                                .font(.helvetica(26))
+                                .fontWeight(.bold)
                                 .foregroundColor(.white)
                             Text("More of Alex’s story")
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .font(.helvetica(12))
+                                .fontWeight(.semibold)
                                 .foregroundColor(.white.opacity(0.48))
                                 .tracking(1.5)
                             Text("You can scroll back through the thread above whenever you like.")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.helvetica(13))
                                 .foregroundColor(.white.opacity(0.68))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 8)

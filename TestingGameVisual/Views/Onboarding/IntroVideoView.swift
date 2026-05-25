@@ -1,7 +1,7 @@
 import SwiftUI
 import AVKit
 
-// MARK: - Intro Video Screen
+// MARK: - Loading Screen
 // Letterboxed playback of `logo.mov` with a circular progress ring that tracks
 // playback (0–100). When the video finishes, a "tap to start" prompt fades in
 // and any tap on the screen continues to the home hub.
