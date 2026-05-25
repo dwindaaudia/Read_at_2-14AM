@@ -83,7 +83,7 @@ final class Scene2State: NarrativeState {
         switch manager.currentPsycheLevel {
         case .low:            levelText = "Alex's follow-up feels almost like a normal conversation. The wrongness is subtle."
         case .medium:         levelText = "Alex is less settled. Something in his phrasing is off enough to notice but not enough to name."
-        case .high, .extreme: levelText = "Alex is more fragmented. Messages arrive faster. He starts to repeat himself slightly."
+        case .high:           levelText = "Alex is more fragmented. Messages arrive faster. He starts to repeat himself slightly."
         }
 
         let situation = """
@@ -127,7 +127,7 @@ final class Scene3State: NarrativeState {
         switch manager.currentPsycheLevel {
         case .low:            levelText = "Alex follows up warmly. The hint in the background feels like a background detail."
         case .medium:         levelText = "Alex is more pointed. The player might start to feel watched rather than missed."
-        case .high, .extreme: levelText = "Alex is insistent. The glitch and haptic have disoriented the player. Messages arrive fast."
+        case .high:           levelText = "Alex is insistent. The glitch and haptic have disoriented the player. Messages arrive fast."
         }
 
         let situation = """
@@ -165,7 +165,7 @@ final class Scene4State: NarrativeState {
         switch manager.currentPsycheLevel {
         case .low:            asset = "VN_L1.mp3"
         case .medium:         asset = "VN_M1.mp3"
-        case .high, .extreme: asset = "VN_H1.mp3"
+        case .high:           asset = "VN_H1.mp3"
         }
         manager.triggerSpecialEvent(type: .voiceNote(asset), text: "Listen to me...")
     }
@@ -177,7 +177,7 @@ final class Scene4State: NarrativeState {
         switch manager.currentPsycheLevel {
         case .low:            audioDetail = "Calm voice note. Soft rain, slow breathing."
         case .medium:         audioDetail = "Unstable voice. Fast breathing, 'are you there?'."
-        case .high, .extreme: audioDetail = "Chaotic voice. Footsteps, horn, fall, distortion."
+        case .high:           audioDetail = "Chaotic voice. Footsteps, horn, fall, distortion."
         }
 
         let situation = """

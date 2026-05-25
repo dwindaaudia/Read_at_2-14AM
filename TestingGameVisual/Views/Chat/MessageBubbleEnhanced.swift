@@ -72,43 +72,32 @@ struct MessageBubbleEnhanced: View {
     @ViewBuilder
     private var incomingRow: some View {
         HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Alex")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
-                HStack(alignment: .bottom, spacing: 4) {
-                    incomingBubbleContent
-                        .layoutPriority(1)
-                    Text(message.time)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(.white.opacity(0.65))
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.bottom, 2)
-                }
+            HStack(alignment: .bottom, spacing: 4) {
+                incomingBubbleContent
+                    .layoutPriority(1)
+                Text(message.time)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(.white.opacity(0.65))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.bottom, 2)
             }
             .frame(maxWidth: Self.bubbleMax, alignment: .leading)
             Spacer(minLength: 0)
         }
     }
-
+    
     @ViewBuilder
     private var outgoingRow: some View {
         HStack(alignment: .top, spacing: 0) {
             Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 12) {
-                Text("You")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
-                    .fixedSize(horizontal: true, vertical: true)
-                HStack(alignment: .bottom, spacing: 4) {
-                    readMetaOutgoing
-                        .padding(.bottom, 2)
-                    outgoingBubbleContent
-                }
-                .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
-                .animation(.spring(response: 0.42, dampingFraction: 0.86), value: message.isRead)
+            HStack(alignment: .bottom, spacing: 4) {
+                readMetaOutgoing
+                    .padding(.bottom, 2)
+                outgoingBubbleContent
             }
+            .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
+            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: message.isRead)
         }
     }
 

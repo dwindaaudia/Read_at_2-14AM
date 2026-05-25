@@ -6,6 +6,7 @@ import SwiftUI
 struct AlexTypingIndicatorView: View {
     @State private var pulse = false
     @State private var isBubbleVisible = true
+    private static let alexBubble = Color(red: 0.216, green: 0.2, blue: 0.2)
 
     var body: some View {
         Group {
@@ -25,7 +26,7 @@ struct AlexTypingIndicatorView: View {
             HStack(spacing: 5) {
                 ForEach(0..<3, id: \.self) { i in
                     Circle()
-                        .fill(Color.black.opacity(0.42))
+                        .fill(Color.white)
                         .frame(width: 6, height: 6)
                         .scaleEffect(pulse ? 1.12 : 0.88)
                         .opacity(pulse ? 1.0 : 0.38)
@@ -41,7 +42,7 @@ struct AlexTypingIndicatorView: View {
             .padding(.vertical, 13)
             .background(
                 Rectangle()
-                    .fill(Color.white)
+                    .fill(Self.alexBubble)
             )
             Spacer(minLength: 0)
         }

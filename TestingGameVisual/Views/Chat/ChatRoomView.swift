@@ -124,7 +124,7 @@ struct ChatRoomView: View {
                 Rectangle()
                     .fill(Color.white.opacity(0.5))
                     .frame(maxWidth: .infinity, maxHeight: 1)
-//                    .padding(.vertical, 8)
+                
                 chatMainStack
             }
             chatOverlayStack
@@ -136,7 +136,7 @@ struct ChatRoomView: View {
                     .resizable()
                     .scaledToFill()
                 Color.black
-                    .opacity(0.6)
+                    .opacity(0.7)
             }
             .ignoresSafeArea()
         }
@@ -147,6 +147,15 @@ struct ChatRoomView: View {
             // they're about to interact, and the first reply pays the cold-start cost.
             gameManager.prewarmAIIfAvailable()
             resumeAmbientEffectsIfNeeded()
+            
+            if !AppSettings.shared.hasSeenTutorial {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation(.easeIn(duration: 0.4)) {
+                        showTutorial = true
+                    }
+                }
+            }
+            
             if gameManager.currentScene == "ENDING", gameManager.isEndingFinished {
                 scheduleChapter1EndingSequenceIfNeeded()
             }
@@ -191,9 +200,13 @@ struct ChatRoomView: View {
             }
         }
         .simultaneousGesture(
-            DragGesture(minimumDistance: 40, coordinateSpace: .local)
+            DragGesture(minimumDistance: 20, coordinateSpace: .global)
                 .onEnded { value in
-                    if value.translation.width > 100 && abs(value.translation.height) < 120 {
+                    let horizontalSwipe = value.translation.width
+                    let predictedHorizontal = value.predictedEndTranslation.width
+                    let verticalSwipe = abs(value.translation.height)
+                    
+                    if (horizontalSwipe > 50 || predictedHorizontal > 150) && verticalSwipe < 60 {
                         HapticManager.shared.playTypeHaptic()
                         goHome()
                     }
@@ -263,7 +276,6 @@ struct ChatRoomView: View {
                         
                         Spacer(minLength: 24)
                     }
-                    // Membiarkan VStack mematuhi safe area atas agar header tidak tertutup Notch/Dynamic Island
                 }
                 .transition(.opacity)
                 .zIndex(150)
@@ -287,11 +299,6 @@ struct ChatRoomView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
-            
-//            Rectangle()
-//                .fill(Color.white.opacity(0.22))
-//                .frame(width: 1, height: 51)
-//                .padding(.horizontal, 8)
             
             HStack(spacing: 10) {
                 Image("alex pp")
@@ -331,17 +338,6 @@ struct ChatRoomView: View {
     @ViewBuilder
     private var chatMainStack: some View {
         VStack(spacing: 0) {
-            if AppSettings.shared.debugBarVisible && gameManager.currentScene != "ENDING" {
-                DebugStatusView(
-                    denialScore:  gameManager.denialScore,
-                    currentAct:   gameManager.currentAct,
-                    currentScene: gameManager.currentScene,
-                    modelStatus:  gameManager.modelStatusText
-                )
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
-            
             chatMessagesScroll
             
             if gameManager.currentScene != "ENDING" {
@@ -403,7 +399,6 @@ struct ChatRoomView: View {
                         proxy.scrollTo("bottomAnchor", anchor: .bottom)
                     }
                 }
-                // CHANGE
                 .onChange(of: gameManager.messages) { _, newMessages in
                     withAnimation(.spring()) { proxy.scrollTo("bottomAnchor", anchor: .bottom) }
                     
@@ -488,6 +483,12 @@ struct ChatRoomView: View {
     
     @ViewBuilder
     private var chatOverlayStack: some View {
+        if showTutorial {
+            TutorialOverlayView(isVisible: $showTutorial)
+                .transition(.opacity)
+                .zIndex(90)
+        }
+        
         MemoryBleedOverlayView(
             denialScore:         gameManager.denialScore,
             recentAlexMessages:  gameManager.recentAlexReplies
@@ -503,17 +504,6 @@ struct ChatRoomView: View {
             crackTrigger:  gameManager.crackTrigger
         )
         .allowsHitTesting(false)
-
-
-        if showActTransition {
-            ActTransitionView(
-                actNumber: transitionActNumber,
-                actTitle:  actTitleName(for: transitionActNumber),
-                isVisible: $showActTransition
-            )
-            .transition(.opacity)
-            .zIndex(80)
-        }
         
         if gameManager.currentScene == "ENDING", gameManager.isEndingFinished,
            chapter1EndingPhase == .chapterFooter || chapter1EndingPhase == .comingSoonTeaser {
@@ -528,11 +518,12 @@ struct ChatRoomView: View {
     private var chapter1EndChapterFooterBanner: some View {
         VStack(spacing: 6) {
             Text("END OF CHAPTER 1")
-                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .font(.helvetica(11))
+                .fontWeight(.heavy)
                 .tracking(2.5)
                 .foregroundColor(.white.opacity(0.92))
-            Text("Acts I–III are all part of Chapter 1. This build is the full Chapter 1 arc.")
-                .font(.system(size: 12, weight: .regular))
+            Text("This build is the full Chapter 1 arc.")
+                .font(.helvetica(12))
                 .foregroundColor(.white.opacity(0.56))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 4)
@@ -564,14 +555,16 @@ struct ChatRoomView: View {
                         Spacer(minLength: 0)
                         VStack(spacing: 14) {
                             Text("Coming soon")
-                                .font(.system(size: 26, weight: .bold, design: .serif))
+                                .font(.helvetica(26))
+                                .fontWeight(.bold)
                                 .foregroundColor(.white)
                             Text("More of Alex’s story")
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .font(.helvetica(12))
+                                .fontWeight(.semibold)
                                 .foregroundColor(.white.opacity(0.48))
                                 .tracking(1.5)
                             Text("You can scroll back through the thread above whenever you like.")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.helvetica(13))
                                 .foregroundColor(.white.opacity(0.68))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 8)

@@ -18,8 +18,9 @@ struct MemoryBleedOverlayView: View {
         ZStack {
             if ghostOpacity > 0 {
                 Text(ghostText)
-                    .font(.system(size: 17, weight: .ultraLight, design: .monospaced))
-                    .foregroundColor(.white.opacity(ghostOpacity * 0.30))
+                    .font(.helvetica(17))
+                    .fontWeight(.light)
+                    .foregroundColor(.red.opacity(ghostOpacity * 0.30))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 50)
                     .offset(y: ghostOffsetY)

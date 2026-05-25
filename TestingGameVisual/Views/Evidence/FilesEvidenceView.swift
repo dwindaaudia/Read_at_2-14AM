@@ -107,11 +107,27 @@ struct FilesEvidenceView: View {
                     .scaledToFill()
                 
                 Color.black
-                    .opacity(0.6)
+                    .opacity(0.7)
             }
             .ignoresSafeArea()
         }
         .preferredColorScheme(.dark)
+        
+        .toolbar(.hidden, for: .navigationBar)
+        
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20, coordinateSpace: .global)
+                .onEnded { value in
+                    let horizontalSwipe = value.translation.width
+                    let predictedHorizontal = value.predictedEndTranslation.width
+                    let verticalSwipe = abs(value.translation.height)
+                    
+                    if (horizontalSwipe > 50 || predictedHorizontal > 150) && verticalSwipe < 60 {
+                        HapticManager.shared.playTypeHaptic()
+                        dismiss()
+                    }
+                }
+        )
     }
 
     // MARK: Custom Header (matches ChatRoomView)
@@ -138,12 +154,6 @@ struct FilesEvidenceView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Back")
 
-//                    Rectangle()
-//                        .fill(Color.white.opacity(0.22))
-//                        .frame(width: 1, height: 28)
-//                        .padding(.horizontal, 8)
-
-                    // This spacer pushes the button and divider to the leading edge
                     Spacer(minLength: 0)
                 }
             }

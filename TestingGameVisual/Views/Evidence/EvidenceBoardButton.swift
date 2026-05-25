@@ -37,7 +37,7 @@ struct EvidenceBoardButton: View {
             }
         }
         .buttonStyle(.plain)
-        .sheet(isPresented: $showBoard) {
+        .navigationDestination(isPresented: $showBoard) {
             FilesEvidenceView(gameManager: gameManager)
         }
     }

@@ -17,5 +17,5 @@ enum AlexToneState: String {
 /// Per-scene branching level derived from denialScore.
 // TODO: PsycheLevel .extreme still exist
 enum PsycheLevel {
-    case low, medium, high, extreme
+    case low, medium, high
 }
