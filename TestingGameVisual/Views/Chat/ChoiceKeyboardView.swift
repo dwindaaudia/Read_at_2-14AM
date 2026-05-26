@@ -1,0 +1,128 @@
+import SwiftUI
+
+// MARK: - Footer Placeholder (waiting / offline / bridge)
+
+struct ChatComposerBar: View {
+    enum Style {
+        case waiting
+        case bridgeHold
+        case offline
+        case choosePrompt
+    }
+
+    let style: Style
+
+    private static let waitingBackground = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
+
+    private var message: String {
+        switch style {
+        case .waiting: return "Waiting for Alex…"
+        case .bridgeHold: return "Hold on…"
+        case .offline: return "Alex is offline."
+        case .choosePrompt: return "Choose a response…"
+        }
+    }
+
+    private var usesWaitingChrome: Bool {
+        switch style {
+        case .waiting, .bridgeHold, .offline: return true
+        case .choosePrompt: return false
+        }
+    }
+
+    var body: some View {
+        Text(message)
+            .foregroundColor(usesWaitingChrome ? .white : Color.black.opacity(0.45))
+            .font(.system(size: 15, weight: .regular))
+            .frame(maxWidth: .infinity, alignment: usesWaitingChrome ? .center : .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(usesWaitingChrome ? Self.waitingBackground : Color(white: 0.82))
+            .overlay(
+                Rectangle()
+                    .stroke(usesWaitingChrome ? Color.white : Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .padding(.horizontal, 10)
+    }
+}
+
+// MARK: - Choice Keyboard
+// Inline strip above the composer: dark fill with red side bars per row.
+
+struct ChoiceKeyboardView: View {
+    let choices: [PlayerChoice]
+    let denialScore: Int
+    let onSelect: (PlayerChoice) -> Void
+
+    /// Same accent red as the user message bubble (header / profile red family).
+    private static let borderAccent = Color(red: 26 / 255.0, green: 8 / 255.0, blue: 8 / 255.0)
+    private static let textDark = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(choices) { choice in
+                choiceButton(for: choice)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Each row height follows only that choice's text (1 line = short; 2+ lines = taller for that row only).
+    private func choiceButton(for choice: PlayerChoice) -> some View {
+        Button(action: { onSelect(choice) }) {
+            Text(applyZalgo(to: choice.text, intensity: denialScore))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(Self.textDark)
+                .multilineTextAlignment(.center)
+                .lineLimit(6)
+                .minimumScaleFactor(0.82)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 24)
+                .background(.gray)
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .stroke(Color.black.opacity(0.4), lineWidth: 8)
+                        .blur(radius: 4)
+                        .mask(Rectangle())
+                }
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(Color.black, lineWidth: 2)
+                )
+                .shadow(color: Color.black.opacity(0.25), radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Applies Zalgo-style diacritic corruption when denial score exceeds 10.
+    private func applyZalgo(to text: String, intensity: Int) -> String {
+        guard intensity > 10 else { return text }
+
+        let zalgoMarks = [
+            "\u{030d}", "\u{030e}", "\u{0304}", "\u{0305}", "\u{033f}", "\u{0311}",
+            "\u{0306}", "\u{0310}", "\u{0352}", "\u{0357}", "\u{0351}", "\u{0301}",
+            "\u{0300}", "\u{0316}", "\u{0317}", "\u{0318}", "\u{0319}", "\u{031c}",
+            "\u{031d}", "\u{0324}", "\u{0325}", "\u{0326}", "\u{032e}", "\u{032f}",
+            "\u{0330}", "\u{0331}", "\u{0332}", "\u{0333}", "\u{0339}", "\u{033a}",
+            "\u{033b}", "\u{033c}", "\u{0345}", "\u{0347}", "\u{0348}", "\u{0349}",
+            "\u{034a}", "\u{034b}", "\u{034c}", "\u{034d}", "\u{034e}", "\u{0353}",
+            "\u{0354}", "\u{0355}", "\u{0356}", "\u{0359}", "\u{035a}", "\u{0323}"
+        ]
+
+        var result = ""
+        for char in text {
+            result.append(char)
+            if char.isWhitespace { continue }
+
+            let marksCount = intensity > 15 ? Int.random(in: 1...3) : Int.random(in: 0...1)
+            for _ in 0..<marksCount {
+                if let mark = zalgoMarks.randomElement() {
+                    result.append(Character(UnicodeScalar(mark)!))
+                }
+            }
+        }
+        return result
+    }
+}

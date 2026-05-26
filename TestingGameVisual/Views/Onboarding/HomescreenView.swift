@@ -1,0 +1,560 @@
+import SwiftUI
+
+// MARK: - HOMESCREEN (Lock screen + main hub)
+// Combines the previous SplashScreen → MainMenu → ContentWarning → LockScreen flow
+// into a single dark home hub with a unread Alex feed and three dock buttons.
+
+/// Snapshot of lock-screen notification `ScrollView` geometry for edge fades.
+private struct LockScrollFadeMetrics: Equatable {
+    var offsetY: CGFloat
+    var contentH: CGFloat
+    var visibleH: CGFloat
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        abs(lhs.offsetY - rhs.offsetY) < 0.55
+            && abs(lhs.contentH - rhs.contentH) < 0.55
+            && abs(lhs.visibleH - rhs.visibleH) < 0.55
+    }
+}
+
+/// Matches `chatHeaderBarColor` in chat — dark maroon dock, not bright pink-red.
+private var homeScreenDockBarColor: LinearGradient {
+        // Top: #000000 (Pure Black)
+        let topColor = Color.black
+        
+        // Bottom: #1B1B1B (Dark Gray)
+        let bottomColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
+        
+        return LinearGradient(
+            gradient: Gradient(colors: [
+                bottomColor,
+                topColor
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+struct HomescreenView: View {
+    @ObservedObject var gameManager: GameManager
+    @Binding var chatUnlocked: Bool
+    let onOpenChat: () -> Void
+    /// Injected by the root so the Settings "Reset All Game Data" action can wipe
+    /// save / evidence / totalClears / game state and rebuild the home hub.
+    var onResetAll: (() -> Void)? = nil
+
+    @State private var titleOpacity: Double = 0
+    @State private var buttonsOpacity: Double = 0
+    @State private var glitchOffsetX: CGFloat = 0
+    @State private var showSettings = false
+    @State private var showFiles = false
+    @State private var glitchTimer: Timer?
+    @State private var showTutorial = false
+
+    @State private var clockDigits = "2:13"
+    @State private var brightnessDim: Double = 0
+    @State private var glitchFlash: Double = 0
+    @State private var showAlexNotification = false
+    @State private var introStarted = false
+    @State private var homeIntroGeneration = 0
+    @State private var ghostPhaseHidden = true
+    @State private var lockScrollTopFade: Double = 0
+    @State private var lockScrollBottomFade: Double = 0
+
+    private var chapterLabel: String { "Chapter 1" }
+
+    private var shouldShowNotificationsSection: Bool {
+        if hasReturningFeed { return !lockScreenAlexQueue.isEmpty }
+        if !ghostPhaseHidden { return true }
+        return showAlexNotification
+    }
+
+    private var showNotificationSectionHeader: Bool {
+        if hasReturningFeed { return !lockScreenAlexQueue.isEmpty }
+        return showAlexNotification
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Image("ls_wallpaper")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .ignoresSafeArea()
+                
+                Color(red: 0.133, green: 0.0, blue: 0.0)
+                    .opacity(0.3)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                
+                Color.black.opacity(brightnessDim).ignoresSafeArea()
+                Color.red.opacity(glitchFlash).ignoresSafeArea().allowsHitTesting(false)
+                
+                VStack(spacing: 0) {
+                    titleHeader
+                    Rectangle()
+                        .fill(Color.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, maxHeight: 1)
+                    
+                    if shouldShowNotificationsSection {
+                        notificationsSection
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                    Rectangle()
+                        .fill(Color.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, maxHeight: 1)
+                    dockSection
+                }
+                if showTutorial {
+                    TutorialOverlayView(isVisible: $showTutorial)
+                        .transition(.opacity)
+                        .zIndex(90)
+                        .onDisappear {
+                            if !AppSettings.shared.hasCompletedHome214Transition {
+                                runNewPlayerIntro()
+                            }
+                        }
+                }
+            }
+            .onAppear {
+                withAnimation(.easeIn(duration: 1.0)) { titleOpacity = 1.0 }
+                withAnimation(.easeIn(duration: 0.8).delay(0.4)) { buttonsOpacity = 1.0 }
+                startGlitchLoop()
+                configureHomeOnAppear()
+                gameManager.resumePendingAlexReplyIfNeeded()
+                // Audit §10.1: from the home hub the player is one tap away from chat — warm
+                // the on-device LLM proactively so the first reply doesn't pay cold-start.
+                gameManager.prewarmAIIfAvailable()
+            }
+            .onChange(of: gameManager.messages) { _, _ in
+                guard AppSettings.shared.hasCompletedHome214Transition || AppSettings.shared.hasStartedGame else { return }
+                if !gameManager.messages.isEmpty { chatUnlocked = true }
+            }
+            .onDisappear {
+                glitchTimer?.invalidate()
+                homeIntroGeneration += 1
+            }
+            .navigationDestination(isPresented: $showSettings) {
+                SettingsView(onResetAll: onResetAll)
+            }
+            .navigationDestination(isPresented: $showFiles) {
+                FilesEvidenceView(gameManager: gameManager)
+            }
+        }
+    }
+    private var lockScreenHeaderBarGradient: LinearGradient {
+            // Top: #000000 (Pure Black)
+            let topColor = Color.black
+            
+            // Bottom: #1B1B1B (Dark Gray)
+            let bottomColor = Color(red: 27 / 255.0, green: 27 / 255.0, blue: 27 / 255.0)
+            
+            return LinearGradient(
+                gradient: Gradient(colors: [
+                    topColor,
+                    bottomColor
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+
+    // MARK: Subviews
+
+    private var titleHeader: some View {
+        HStack {
+            Text("Friday 8")
+                .font(.helvetica(17))
+                .foregroundColor(.white)
+                .padding(.trailing, 18)
+
+            ZStack {
+                Text(clockDigits)
+                    .font(.helvetica(45, weight: .bold))
+                    .foregroundColor(.red.opacity(0.55))
+                    .offset(x: glitchOffsetX + 3, y: 2)
+                Text(clockDigits)
+                    .font(.helvetica(45, weight: .bold))
+                    .foregroundColor(.cyan.opacity(0.35))
+                    .offset(x: -glitchOffsetX - 2, y: -2)
+                Text(clockDigits)
+                    .font(.helvetica(45, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .opacity(titleOpacity)
+
+            Text(chapterLabel)
+                .font(.helvetica(17))
+                .foregroundColor(.white)
+                .padding(.leading, 18)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 72)
+        .padding(.bottom, 24)
+        .background(lockScreenHeaderBarGradient)
+    }
+
+    private var notificationsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Spacer()
+            if showNotificationSectionHeader {
+                HStack {
+                    Text("Notifications")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Button("Clear All") {
+                        clearLockScreenAlexNotifications()
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.75))
+                }
+                .padding(.horizontal, 20)
+            }
+
+            ZStack {
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 10) {
+                                Spacer(minLength: 0)
+
+                                notificationRows
+
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("lockNotificationBottomAnchor")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: geometry.size.height, alignment: .bottom)
+                            .padding(.top, 12)
+                            .padding(.bottom, 8)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .onScrollGeometryChange(for: LockScrollFadeMetrics.self) { geo in
+                            LockScrollFadeMetrics(
+                                offsetY: geo.contentOffset.y,
+                                contentH: geo.contentSize.height,
+                                visibleH: geo.visibleRect.height
+                            )
+                        } action: { _, metrics in
+                            applyLockScrollEdgeFades(metrics)
+                        }
+                        .onAppear {
+                            proxy.scrollTo("lockNotificationBottomAnchor", anchor: .bottom)
+                        }
+                        .onChange(of: lockScreenAlexQueue.count) { _, _ in
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo("lockNotificationBottomAnchor", anchor: .bottom)
+                            }
+                        }
+                        .onChange(of: showAlexNotification) { _, _ in
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo("lockNotificationBottomAnchor", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.68), Color.black.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 54)
+                    .opacity(lockScrollTopFade)
+
+                    Spacer(minLength: 0)
+
+                    LinearGradient(
+                        colors: [Color.black.opacity(0), Color.black.opacity(0.68)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 54)
+                    .opacity(lockScrollBottomFade)
+                }
+                .allowsHitTesting(false)
+            }
+            .frame(maxHeight: .infinity)
+            .clipped()
+        }
+    }
+
+    @ViewBuilder
+    private var notificationRows: some View {
+        if hasReturningFeed {
+            ForEach(lockScreenAlexQueue) { row in
+                AlexNotificationCard(
+                    message: row.text,
+                    time: row.time,
+                    isInteractive: chatUnlocked,
+                    onTap: chatUnlocked ? { openChatIfAllowed() } : nil
+                )
+            }
+        } else if showAlexNotification {
+            AlexNotificationCard(
+                message: "Are you awake?",
+                time: "2:14 AM",
+                isInteractive: chatUnlocked,
+                onTap: chatUnlocked ? { openChatIfAllowed() } : nil
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var dockSection: some View {
+        HStack {
+            homeDockButton(title: "Settings", disabled: !chatUnlocked) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 30))
+            } action: {
+                showSettings = true
+            }
+
+            homeDockButton(title: "Chat", disabled: !chatUnlocked) {
+                Image(systemName: "message.fill")
+                    .font(.system(size: 30))
+            } action: {
+                openChatIfAllowed()
+            }
+
+            homeDockButton(title: "Files", disabled: !chatUnlocked) {
+                Image("Library")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 31)
+            } action: {
+                showFiles = true
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 64)
+        .frame(maxWidth: .infinity)
+        .background {
+            homeScreenDockBarColor
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .opacity(buttonsOpacity)
+    }
+
+    // MARK: Lock-Feed Logic
+
+    /// Edge shadows only after the user scrolls away from the "resting" top; no permanent vignette when idle.
+    private func applyLockScrollEdgeFades(_ m: LockScrollFadeMetrics) {
+        guard m.visibleH > 1, m.contentH > 1 else {
+            lockScrollTopFade = 0
+            lockScrollBottomFade = 0
+            return
+        }
+        let overflow = m.contentH - m.visibleH
+        if overflow < 2 {
+            lockScrollTopFade = 0
+            lockScrollBottomFade = 0
+            return
+        }
+        let maxY = max(0, overflow - 1)
+        let y = max(0, m.offsetY)
+        let spaceBelow = max(0, maxY - y)
+        let edge: CGFloat = 8
+        let span: CGFloat = 28
+        if y <= edge {
+            lockScrollTopFade = 0
+        } else {
+            lockScrollTopFade = min(0.92, Double((y - edge) / span))
+        }
+        if spaceBelow <= edge {
+            lockScrollBottomFade = 0
+        } else {
+            lockScrollBottomFade = min(0.92, Double((spaceBelow - edge) / span))
+        }
+    }
+
+    private func clearLockScreenAlexNotifications() {
+        let ids = Set(lockScreenAlexQueue.map(\.id))
+        guard !ids.isEmpty else { return }
+        gameManager.markAlexMessagesRead(ids: ids)
+        GameSaveManager.shared.save(from: gameManager)
+    }
+
+    private var hasReturningFeed: Bool {
+        GameSaveManager.shared.hasSave || !gameManager.messages.isEmpty
+    }
+
+    /// Unread inbound Alex rows (same read model as the chat thread: opening chat marks them read).
+    private var lockScreenAlexQueue: [AlexFeedRow] {
+        gameManager.messages.compactMap { msg in
+            guard !msg.isFromMe, !msg.isRead else { return nil }
+            let preview: String?
+            switch msg.type {
+            case .text:
+                let t = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = t.isEmpty ? nil : t
+            case .systemAlert:
+                let t = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = t.isEmpty ? nil : t
+            case .image:
+                let t = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = t.isEmpty ? "Photo" : t
+            case .voiceNote:
+                preview = "Voice message"
+            case .lockedFile:
+                preview = msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "File" : msg.text
+            }
+            guard let preview else { return nil }
+            return AlexFeedRow(id: msg.id, text: preview, time: msg.time)
+        }
+    }
+
+    private func configureHomeOnAppear() {
+        if hasReturningFeed, AppSettings.shared.hasStartedGame {
+            clockDigits = "2:14"
+            chatUnlocked = true
+            showAlexNotification = false
+            return
+        }
+
+        guard !AppSettings.shared.hasStartedGame else {
+            clockDigits = "2:14"
+            chatUnlocked = true
+            return
+        }
+
+        // Pre-game: home hub after the one-time tutorial + 2:14 intro (notification only from `runNewPlayerIntro`).
+        if AppSettings.shared.hasCompletedHome214Transition {
+            clockDigits = "2:14"
+            ghostPhaseHidden = true
+            chatUnlocked = true
+            showAlexNotification = !hasReturningFeed
+        } else {
+            if !introStarted { introStarted = true }
+            clockDigits = "2:13"
+            chatUnlocked = false
+            ghostPhaseHidden = false
+            showAlexNotification = false
+        }
+
+        presentTutorialIfNeeded()
+    }
+
+    private func presentTutorialIfNeeded() {
+        guard AppSettings.shared.shouldShowTutorial else { return }
+        guard !showTutorial else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation { showTutorial = true }
+        }
+    }
+
+    private func runNewPlayerIntro() {
+        guard !AppSettings.shared.hasCompletedHome214Transition else { return }
+        AppSettings.shared.hasCompletedHome214Transition = true
+
+        // First-time flow: clock flips to 2:14 + glitch → short beat → ghost chats dismiss → pause → Alex notification.
+        let clockAndGlitch: TimeInterval = 1.5
+        let pauseAfterGlitch: TimeInterval = 0.42
+        let pauseBeforeAlex: TimeInterval = 0.72
+        let generation = homeIntroGeneration
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + clockAndGlitch) {
+            guard generation == homeIntroGeneration else { return }
+            clockDigits = "2:14"
+            runGlitchBurst()
+            HapticManager.shared.playGlitchHaptic()
+            withAnimation(.easeInOut(duration: 0.1)) { glitchFlash = 0.38 }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                guard generation == homeIntroGeneration else { return }
+                glitchFlash = 0
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + pauseAfterGlitch) {
+                guard generation == homeIntroGeneration else { return }
+                withAnimation(.easeOut(duration: 0.48)) {
+                    ghostPhaseHidden = true
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + pauseBeforeAlex) {
+                    guard generation == homeIntroGeneration else { return }
+                    triggerAlexNotification()
+                }
+            }
+        }
+    }
+    
+    private func triggerAlexNotification() {
+        withAnimation(.spring(response: 0.58, dampingFraction: 0.82)) {
+            showAlexNotification = true
+        }
+        AudioManager.shared.playSound("notification_sfx")
+        HapticManager.shared.playGlitchHaptic()
+        chatUnlocked = true
+    }
+
+    private func openChatIfAllowed() {
+        guard chatUnlocked else { return }
+        HapticManager.shared.playTypeHaptic()
+        onOpenChat()
+    }
+
+    private func homeDockButton<Icon: View>(
+        title: String,
+        disabled: Bool = false,
+        @ViewBuilder icon: () -> Icon,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: {
+            guard !disabled else { return }
+            HapticManager.shared.playTypeHaptic()
+            action()
+        }) {
+            VStack(spacing: 10) {
+                icon()
+                    .foregroundColor(.white)
+                Text(title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .disabled(disabled)
+    }
+
+    // MARK: Glitch Loop
+
+    private func startGlitchLoop() {
+        scheduleNextGlitch()
+    }
+
+    private func scheduleNextGlitch() {
+        let waitTime = Double.random(in: 4.0...9.0)
+        glitchTimer = Timer.scheduledTimer(withTimeInterval: waitTime, repeats: false) { _ in
+            runGlitchBurst()
+            scheduleNextGlitch()
+        }
+    }
+
+    private func runGlitchBurst() {
+        let moves: [(CGFloat, Double)] = [(10, 0.05), (0, 0.05), (-8, 0.04), (0, 0.05), (6, 0.03), (0, 0)]
+        var t = 0.0
+        for (offset, dur) in moves {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) {
+                withAnimation(.linear(duration: 0.04)) { glitchOffsetX = offset }
+            }
+            t += dur
+        }
+        HapticManager.shared.playTypeHaptic()
+    }
+}
+
+// MARK: - Lock-Feed Helper Types
+
+struct AlexFeedRow: Identifiable {
+    let id: UUID
+    let text: String
+    let time: String
+}
+
