@@ -6,6 +6,23 @@ import AVFoundation
 
 class AudioManager {
     static let shared = AudioManager()
+
+    /// Resolves bundled audio whether it lives at the bundle root or in `Sound/`,
+    /// and whether the file uses a `.mp3` or `.MP3` extension.
+    static func audioResourceURL(for filename: String) -> URL? {
+        var base = filename
+        if base.lowercased().hasSuffix(".mp3") {
+            base = String(base.dropLast(4))
+        }
+        for subdirectory in [nil as String?, "Sound"] {
+            for ext in ["mp3", "MP3"] {
+                if let url = Bundle.main.url(forResource: base, withExtension: ext, subdirectory: subdirectory) {
+                    return url
+                }
+            }
+        }
+        return nil
+    }
     
     var bgmPlayer: AVAudioPlayer?
     
@@ -28,8 +45,8 @@ class AudioManager {
     // MARK: BGM
     
     func playBackgroundMusic(filename: String) {
-        guard let url = Bundle.main.url(forResource: filename, withExtension: "mp3") else {
-            print("AudioManager: BGM file '\(filename).mp3' not found.")
+        guard let url = Self.audioResourceURL(for: filename) else {
+            print("AudioManager: BGM file '\(filename)' not found.")
             return
         }
         do {
@@ -52,9 +69,8 @@ class AudioManager {
     // so multiple sounds can play simultaneously.
     
     func playSound(_ filename: String) {
-        let name = filename.replacingOccurrences(of: ".mp3", with: "")
-        guard let url = Bundle.main.url(forResource: name, withExtension: "mp3") else {
-            print("AudioManager: SFX file '\(name).mp3' not found.")
+        guard let url = Self.audioResourceURL(for: filename) else {
+            print("AudioManager: SFX file '\(filename)' not found.")
             return
         }
 

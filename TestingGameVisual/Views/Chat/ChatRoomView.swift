@@ -147,6 +147,7 @@ struct ChatRoomView: View {
             // they're about to interact, and the first reply pays the cold-start cost.
             gameManager.prewarmAIIfAvailable()
             resumeAmbientEffectsIfNeeded()
+            Task { await gameManager.recoverStuckConversationIfNeeded() }
             
             if !AppSettings.shared.hasSeenTutorial {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -328,8 +329,8 @@ struct ChatRoomView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, 10)
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 25)
+        .padding(.vertical, 15)
         .background(chatHeaderBarGradient)
     }
     
@@ -341,6 +342,10 @@ struct ChatRoomView: View {
             chatMessagesScroll
             
             if gameManager.currentScene != "ENDING" {
+                Rectangle()
+                    .fill(Color.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: 1)
+
                 VStack(spacing: showChoiceStrip ? 8 : 0) {
                     if showChoiceStrip {
                         ChoiceKeyboardView(
@@ -357,9 +362,9 @@ struct ChatRoomView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 20)
                 .padding(.top, showChoiceStrip ? 20 : 22)
-                .padding(.bottom, 20)
+                .padding(.bottom, 50)
                 .background(chatFooterBarGradient)
             }
         }
@@ -380,8 +385,14 @@ struct ChatRoomView: View {
                                 .background(Color.white.opacity(0.22))
                                 .frame(maxWidth: .infinity)
                         case .message(let message):
-                            MessageBubbleEnhanced(message: message)
-                                .id(message.id)
+                            MessageBubbleEnhanced(
+                                message: message,
+                                voiceNoteAutoPlay: gameManager.shouldAutoPlayVoiceNote(for: message.id),
+                                onVoiceNoteAutoPlayed: {
+                                    gameManager.clearPendingVoiceNoteAutoPlay(messageID: message.id)
+                                }
+                            )
+                            .id(message.id)
                         }
                     }
                     
@@ -414,8 +425,6 @@ struct ChatRoomView: View {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 showImagePreview = true
                             }
-                        case .voiceNote(let vnName):
-                            AudioManager.shared.playSound(vnName)
                         default:
                             break
                         }
@@ -460,15 +469,19 @@ struct ChatRoomView: View {
     }
     
     private var chatComposerPlaceholder: some View {
-        let isWaiting = gameManager.currentChoices.isEmpty
+        let isBridgeHold = gameManager.currentScene == "S5" && gameManager.currentChoices.isEmpty
+        let isWaiting = gameManager.currentChoices.isEmpty && !isBridgeHold
         let waitingBackground = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
+        let placeholderText: String = {
+            if isBridgeHold { return "Hold on…" }
+            if isWaiting { return "Waiting for Alex…" }
+            return "Choose a response…"
+        }()
 
-        return HStack(spacing: 10) {
-            Text(isWaiting ? "Waiting for Alex…" : "Choose a response…")
-                .foregroundColor(isWaiting ? .white : Color.black.opacity(0.45))
-                .font(.system(size: 15, weight: .regular))
-            Spacer(minLength: 0)
-        }
+        return Text(placeholderText)
+            .foregroundColor(isWaiting ? .white : Color.black.opacity(0.45))
+            .font(.system(size: 15, weight: .regular))
+            .frame(maxWidth: .infinity, alignment: isWaiting ? .center : .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(isWaiting ? waitingBackground : Color(white: 0.82))

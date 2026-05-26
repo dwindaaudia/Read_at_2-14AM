@@ -145,11 +145,7 @@ final class GameSaveManager {
         // dispatched closure never re-fires — the player would be stuck in S5 forever.
         // Re-schedule it here, using the same delay constant.
         if state.currentScene == "S5", state.turnCount < 6 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Scene5State.bridgeAdvanceDelay) { [weak manager] in
-                guard let manager, manager.currentScene == "S5" else { return }
-                manager.turnCount = 6
-                manager.stateMachine?.enter(Scene6State.self)
-            }
+            manager.scheduleScene5BridgeAdvanceIfNeeded()
         }
 
         // Alex continuation after a mid-turn save is started from the home hub via `resumePendingAlexReplyIfNeeded()`

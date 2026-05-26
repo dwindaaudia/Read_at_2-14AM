@@ -157,7 +157,7 @@ struct FilesEvidenceView: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 20)
             .padding(.vertical, 25)
             .background(headerBar)
         }

@@ -48,6 +48,8 @@ fileprivate struct HorrorSystemAlertReveal: View {
 
 struct MessageBubbleEnhanced: View {
     let message: Message
+    var voiceNoteAutoPlay: Bool = false
+    var onVoiceNoteAutoPlayed: (() -> Void)? = nil
 
     private static let youBubble = Color(red: 0.545, green: 0, blue: 0)
     private static let alexBubble = Color(red: 0.216, green: 0.2, blue: 0.2)
@@ -66,7 +68,7 @@ struct MessageBubbleEnhanced: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 
     @ViewBuilder
@@ -134,7 +136,12 @@ struct MessageBubbleEnhanced: View {
                 .padding(6)
                 .background(Rectangle().fill(Self.alexBubble))
         case .voiceNote(let id):
-            VoiceNotePlayerBubble(filename: id, isFromMe: false, autoPlay: true)
+            VoiceNotePlayerBubble(
+                filename: id,
+                isFromMe: false,
+                autoPlay: voiceNoteAutoPlay,
+                onAutoPlayed: onVoiceNoteAutoPlayed
+            )
         case .lockedFile(let id):
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
@@ -176,7 +183,7 @@ struct MessageBubbleEnhanced: View {
             ImageLightboxView(assetName: assetName, caption: message.text, thumbnailCornerRadius: 0)
                 .fixedSize(horizontal: true, vertical: false)
         case .voiceNote(let id):
-            VoiceNotePlayerBubble(filename: id, isFromMe: true, autoPlay: true)
+            VoiceNotePlayerBubble(filename: id, isFromMe: true, autoPlay: false)
         case .lockedFile(let id):
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 10) {

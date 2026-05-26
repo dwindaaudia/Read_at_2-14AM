@@ -30,7 +30,7 @@ struct TutorialOverlayView: View {
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                     
-                    Text("Turn your volume up — the sounds you'll encounter are not just atmosphere, they are evidence.\nEvery response you give shapes what happens next.\nThere are no wrong answers, but every choice leaves a trace.\nSomeone has been trying to reach you. Every night. At 2:14 AM.\nPay attention.")
+                    Text("Turn your volume up — sound here is evidence, not atmosphere.\nYour words shape what happens. No wrong answers, but every choice leaves a trace.\nSomeone's been trying to reach you every night at 2:14 AM.\nPay attention.")
                         .font(.helvetica(14))
                         .foregroundColor(.white)
                 }
