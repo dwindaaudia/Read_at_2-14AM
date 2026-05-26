@@ -4,11 +4,11 @@ import AVKit
 // MARK: - Title Video Screen
 // Fullscreen playback of `2.14AM.mov` shown after the logo intro. Auto-advances
 // to the home hub when the asset reaches the end.
+// Shown once per pre-game session (same lifecycle as the 2:13 home beat).
 
 struct TitleVideoView: View {
     let onComplete: () -> Void
 
-    @AppStorage("hasWatchedIntro") private var hasWatchedIntro: Bool = false
     @State private var player: AVPlayer?
     @State private var didComplete = false
     @State private var showMissingVideoMessage = false
@@ -34,7 +34,7 @@ struct TitleVideoView: View {
                         Spacer()
                         Button {
                             HapticManager.shared.playTypeHaptic()
-                            completeIntro()
+                            finishTitleVideo()
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "chevron.right.2")
@@ -57,11 +57,7 @@ struct TitleVideoView: View {
             }
         }
         .onAppear {
-            if hasWatchedIntro {
-                completeIntro()
-            } else {
-                loadPlayerIfNeeded()
-            }
+            loadPlayerIfNeeded()
         }
         .task(id: player) {
             await observePlaybackEnd()
@@ -71,13 +67,9 @@ struct TitleVideoView: View {
         }
     }
     
-    private func completeIntro() {
+    private func finishTitleVideo() {
         guard !didComplete else { return }
         didComplete = true
-        
-        // Tandai bahwa video sudah ditonton agar tidak muncul lagi
-        hasWatchedIntro = true
-        
         player?.pause()
         onComplete()
     }
@@ -91,7 +83,7 @@ struct TitleVideoView: View {
                 .foregroundColor(.white)
 
             Button("Continue") {
-                completeIntro()
+                finishTitleVideo()
             }
             .font(.system(size: 16, weight: .semibold))
             .foregroundColor(.black)
@@ -105,7 +97,7 @@ struct TitleVideoView: View {
     // MARK: Playback
 
     private func loadPlayerIfNeeded() {
-        guard !hasWatchedIntro, player == nil else { return }
+        guard player == nil else { return }
 
         let url = Bundle.main.url(forResource: "2.14AM", withExtension: "mov")
         print("[TitleVideoView] 2.14AM.mov bundle URL: \(url?.path ?? "nil")")
@@ -127,7 +119,7 @@ struct TitleVideoView: View {
             named: AVPlayerItem.didPlayToEndTimeNotification,
             object: item
         ) {
-            completeIntro()
+            finishTitleVideo()
             break
         }
     }

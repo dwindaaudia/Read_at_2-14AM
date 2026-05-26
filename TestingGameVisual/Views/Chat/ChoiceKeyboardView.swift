@@ -1,5 +1,51 @@
 import SwiftUI
 
+// MARK: - Footer Placeholder (waiting / offline / bridge)
+
+struct ChatComposerBar: View {
+    enum Style {
+        case waiting
+        case bridgeHold
+        case offline
+        case choosePrompt
+    }
+
+    let style: Style
+
+    private static let waitingBackground = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
+
+    private var message: String {
+        switch style {
+        case .waiting: return "Waiting for Alex…"
+        case .bridgeHold: return "Hold on…"
+        case .offline: return "Alex is offline."
+        case .choosePrompt: return "Choose a response…"
+        }
+    }
+
+    private var usesWaitingChrome: Bool {
+        switch style {
+        case .waiting, .bridgeHold, .offline: return true
+        case .choosePrompt: return false
+        }
+    }
+
+    var body: some View {
+        Text(message)
+            .foregroundColor(usesWaitingChrome ? .white : Color.black.opacity(0.45))
+            .font(.system(size: 15, weight: .regular))
+            .frame(maxWidth: .infinity, alignment: usesWaitingChrome ? .center : .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(usesWaitingChrome ? Self.waitingBackground : Color(white: 0.82))
+            .overlay(
+                Rectangle()
+                    .stroke(usesWaitingChrome ? Color.white : Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .padding(.horizontal, 10)
+    }
+}
+
 // MARK: - Choice Keyboard
 // Inline strip above the composer: dark fill with red side bars per row.
 
@@ -10,7 +56,6 @@ struct ChoiceKeyboardView: View {
 
     /// Same accent red as the user message bubble (header / profile red family).
     private static let borderAccent = Color(red: 26 / 255.0, green: 8 / 255.0, blue: 8 / 255.0)
-    private static let rowFill = Color(red: 182 / 255.0, green: 182 / 255.0, blue: 182 / 255.0)
     private static let textDark = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -34,11 +79,11 @@ struct ChoiceKeyboardView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 24)
-                .background(Self.rowFill)
+                .background(.gray)
                 .clipShape(Rectangle())
                 .overlay {
                     Rectangle()
-                        .stroke(Color.black, lineWidth: 8)
+                        .stroke(Color.black.opacity(0.4), lineWidth: 8)
                         .blur(radius: 4)
                         .mask(Rectangle())
                 }

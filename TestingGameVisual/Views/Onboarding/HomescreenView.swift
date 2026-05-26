@@ -50,11 +50,12 @@ struct HomescreenView: View {
     @State private var glitchTimer: Timer?
     @State private var showTutorial = false
 
-    @State private var clockDigits = "2:14"
+    @State private var clockDigits = "2:13"
     @State private var brightnessDim: Double = 0
     @State private var glitchFlash: Double = 0
     @State private var showAlexNotification = false
     @State private var introStarted = false
+    @State private var homeIntroGeneration = 0
     @State private var ghostPhaseHidden = true
     @State private var lockScrollTopFade: Double = 0
     @State private var lockScrollBottomFade: Double = 0
@@ -110,11 +111,9 @@ struct HomescreenView: View {
                         .transition(.opacity)
                         .zIndex(90)
                         .onDisappear {
-                            // Simpan status bahwa player sudah melihat tutorial
-                            AppSettings.shared.hasSeenTutorial = true
-                            
-                            // Lanjutkan memunculkan notifikasi Alex
-                            runNewPlayerIntro()
+                            if !AppSettings.shared.hasCompletedHome214Transition {
+                                runNewPlayerIntro()
+                            }
                         }
                 }
             }
@@ -129,9 +128,13 @@ struct HomescreenView: View {
                 gameManager.prewarmAIIfAvailable()
             }
             .onChange(of: gameManager.messages) { _, _ in
+                guard AppSettings.shared.hasCompletedHome214Transition || AppSettings.shared.hasStartedGame else { return }
                 if !gameManager.messages.isEmpty { chatUnlocked = true }
             }
-            .onDisappear { glitchTimer?.invalidate() }
+            .onDisappear {
+                glitchTimer?.invalidate()
+                homeIntroGeneration += 1
+            }
             .navigationDestination(isPresented: $showSettings) {
                 SettingsView(onResetAll: onResetAll)
             }
@@ -158,18 +161,6 @@ struct HomescreenView: View {
         }
 
     // MARK: Subviews
-
-    private var scanlineOverlay: some View {
-        VStack(spacing: 0) {
-            ForEach(0..<50, id: \.self) { i in
-                Color.white
-                    .opacity(i % 4 == 0 ? 0.025 : 0)
-                    .frame(height: 2)
-                Color.clear.frame(height: 14)
-            }
-        }
-        .allowsHitTesting(false)
-    }
 
     private var titleHeader: some View {
         HStack {
@@ -316,7 +307,7 @@ struct HomescreenView: View {
 
     private var dockSection: some View {
         HStack {
-            homeDockButton(title: "Settings") {
+            homeDockButton(title: "Settings", disabled: !chatUnlocked) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 30))
             } action: {
@@ -329,9 +320,8 @@ struct HomescreenView: View {
             } action: {
                 openChatIfAllowed()
             }
-            .opacity(chatUnlocked ? 1 : 0.35)
 
-            homeDockButton(title: "Files") {
+            homeDockButton(title: "Files", disabled: !chatUnlocked) {
                 Image("Library")
                     .renderingMode(.template)
                     .resizable()
@@ -421,52 +411,74 @@ struct HomescreenView: View {
     }
 
     private func configureHomeOnAppear() {
-        if hasReturningFeed {
+        if hasReturningFeed, AppSettings.shared.hasStartedGame {
             clockDigits = "2:14"
             chatUnlocked = true
             showAlexNotification = false
             return
         }
-        guard !introStarted else { return }
-        introStarted = true
-        clockDigits = "2:13"
-        chatUnlocked = false
-        ghostPhaseHidden = false
-        showAlexNotification = false
-        
-        if !AppSettings.shared.hasSeenTutorial {
-            // Beri sedikit jeda 0.5 detik agar transisi buka aplikasi terasa mulus, lalu buka tutorial
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                withAnimation { showTutorial = true }
-            }
+
+        guard !AppSettings.shared.hasStartedGame else {
+            clockDigits = "2:14"
+            chatUnlocked = true
+            return
+        }
+
+        // Pre-game: home hub after the one-time tutorial + 2:14 intro (notification only from `runNewPlayerIntro`).
+        if AppSettings.shared.hasCompletedHome214Transition {
+            clockDigits = "2:14"
+            ghostPhaseHidden = true
+            chatUnlocked = true
+            showAlexNotification = !hasReturningFeed
         } else {
-            // Jika sudah pernah lihat tutorial, langsung mulai sekuens horor 2:14
-            runNewPlayerIntro()
+            if !introStarted { introStarted = true }
+            clockDigits = "2:13"
+            chatUnlocked = false
+            ghostPhaseHidden = false
+            showAlexNotification = false
+        }
+
+        presentTutorialIfNeeded()
+    }
+
+    private func presentTutorialIfNeeded() {
+        guard AppSettings.shared.shouldShowTutorial else { return }
+        guard !showTutorial else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation { showTutorial = true }
         }
     }
 
     private func runNewPlayerIntro() {
+        guard !AppSettings.shared.hasCompletedHome214Transition else { return }
+        AppSettings.shared.hasCompletedHome214Transition = true
+
         // First-time flow: clock flips to 2:14 + glitch → short beat → ghost chats dismiss → pause → Alex notification.
         let clockAndGlitch: TimeInterval = 1.5
         let pauseAfterGlitch: TimeInterval = 0.42
         let pauseBeforeAlex: TimeInterval = 0.72
+        let generation = homeIntroGeneration
 
         DispatchQueue.main.asyncAfter(deadline: .now() + clockAndGlitch) {
+            guard generation == homeIntroGeneration else { return }
             clockDigits = "2:14"
             runGlitchBurst()
             HapticManager.shared.playGlitchHaptic()
             withAnimation(.easeInOut(duration: 0.1)) { glitchFlash = 0.38 }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                guard generation == homeIntroGeneration else { return }
                 glitchFlash = 0
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + pauseAfterGlitch) {
+                guard generation == homeIntroGeneration else { return }
                 withAnimation(.easeOut(duration: 0.48)) {
                     ghostPhaseHidden = true
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + pauseBeforeAlex) {
+                    guard generation == homeIntroGeneration else { return }
                     triggerAlexNotification()
                 }
             }

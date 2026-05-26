@@ -45,7 +45,7 @@ struct VoiceNotePlayerBubble: View {
             
             // vn duration
             Text(formattedTime(controller.progress == 0 ? controller.duration : (controller.duration * controller.progress)))
-                .font(.helvetica(10))
+                .font(.helvetica(11))
                 .foregroundColor(.white.opacity(0.85))
         }
         .padding(.horizontal, 14)
