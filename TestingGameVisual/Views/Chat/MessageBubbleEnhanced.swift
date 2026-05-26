@@ -143,25 +143,12 @@ struct MessageBubbleEnhanced: View {
                 onAutoPlayed: onVoiceNoteAutoPlayed
             )
         case .lockedFile(let id):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    Image(systemName: "lock.doc.fill")
-                        .font(.title3)
-                        .foregroundColor(.white.opacity(0.9))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Hidden file")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.white.opacity(0.9))
-                        Text(id)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.62))
-                    }
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: Self.bubbleMax, alignment: .leading)
-            .background(Self.alexBubble)
-            .overlay(Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1))
+            LockedFileAttachmentView(
+                fileID: id,
+                isFromMe: false,
+                bubbleColor: Self.alexBubble,
+                maxWidth: Self.bubbleMax
+            )
         default:
             EmptyView()
         }
@@ -185,28 +172,15 @@ struct MessageBubbleEnhanced: View {
         case .voiceNote(let id):
             VoiceNotePlayerBubble(filename: id, isFromMe: true, autoPlay: false)
         case .lockedFile(let id):
-            VStack(alignment: .trailing, spacing: 8) {
-                HStack(spacing: 10) {
-                    Spacer(minLength: 0)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Hidden file")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.white)
-                        Text(id)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.75))
-                    }
-                    Image(systemName: "lock.doc.fill")
-                        .font(.title3)
-                        .foregroundColor(.white.opacity(0.9))
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: Self.bubbleMax, alignment: .trailing)
-            .background(Self.youBubble.opacity(0.95))
-//            .fixedSize(horizontal: true, vertical: true)
+            LockedFileAttachmentView(
+                fileID: id,
+                isFromMe: true,
+                bubbleColor: Self.youBubble.opacity(0.95),
+                maxWidth: Self.bubbleMax
+            )
         default:
             EmptyView()
         }
     }
+
 }

@@ -182,7 +182,6 @@ private struct InteractiveStoryFileCard: View {
     @State private var showImageViewer = false
     @State private var showVoicePlayer = false
     @State private var showDecryptTheatre = false
-    @State private var showAccessDenied = false
 
     var body: some View {
         Button {
@@ -214,9 +213,6 @@ private struct InteractiveStoryFileCard: View {
         .fullScreenCover(isPresented: $showDecryptTheatre) {
             CorruptedDecryptTheatreView()
         }
-        .sheet(isPresented: $showAccessDenied) {
-            AccessDeniedFileSheet(fileName: item.displayName)
-        }
     }
 
     private var imageAssetName: String? {
@@ -239,11 +235,7 @@ private struct InteractiveStoryFileCard: View {
             guard voiceFilename != nil else { return }
             showVoicePlayer = true
         case .archive:
-            if gameManager.isEncryptedFileDecryptAvailable {
-                showDecryptTheatre = true
-            } else {
-                showAccessDenied = true
-            }
+            showDecryptTheatre = true
         }
     }
 }
@@ -444,147 +436,5 @@ private struct FileVoicePlayerSheet: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
         .background(Color(red: 0.1, green: 0, blue: 0.02))
-    }
-}
-
-// MARK: - Locked file: access denied
-
-private struct AccessDeniedFileSheet: View {
-    let fileName: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            VStack(spacing: 20) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 44))
-                    .foregroundColor(.red.opacity(0.85))
-                Text("ACCESS DENIED")
-                    .font(.helvetica(13, weight: .bold))
-                    .foregroundColor(.white.opacity(0.9))
-                Text(fileName)
-                    .font(.helvetica(12))
-                    .foregroundColor(.gray)
-                Text("This container is still sealed by the session you have not reached yet.")
-                    .font(.helvetica(14))
-                    .foregroundColor(.white.opacity(0.65))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
-                Button("Close") {
-                    dismiss()
-                }
-                .font(.helvetica(16, weight: .semibold))
-                .foregroundColor(.black)
-                .padding(.horizontal, 36)
-                .padding(.vertical, 12)
-                .background(Color.white)
-                .clipShape(Rectangle())
-            }
-            .padding(32)
-        }
-        .presentationDetents([.medium])
-    }
-}
-
-// MARK: - Corrupted decrypt theatre (post–story beat)
-
-private struct CorruptedDecryptTheatreView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var progress: Int = 0
-    @State private var phase: Phase = .running
-    @State private var glitchOffset: CGFloat = 0
-    @State private var timer: Timer?
-
-    private enum Phase {
-        case running, failed
-    }
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            VStack(spacing: 28) {
-                Text("FILE_01.DECRYPT")
-                    .font(.helvetica(12, weight: .bold))
-                    .foregroundColor(.red.opacity(0.9))
-                    .offset(x: glitchOffset)
-
-                if phase == .running {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("EXTRACTING FRAGMENTS…")
-                            .font(.helvetica(10, weight: .semibold))
-                            .foregroundColor(.gray)
-                        ProgressView(value: Double(progress), total: 100)
-                            .tint(.red)
-                        Text("\(progress)%")
-                            .font(.helvetica(28, weight: .black))
-                            .foregroundColor(.white)
-                    }
-                    .frame(maxWidth: 280)
-                } else {
-                    VStack(spacing: 14) {
-                        Text("DECRYPT FAILED")
-                            .font(.helvetica(20, weight: .black))
-                            .foregroundColor(.red)
-                        Text("checksum mismatch · sector 0x214 corrupted · payload unreadable")
-                            .font(.helvetica(11))
-                            .foregroundColor(.white.opacity(0.55))
-                            .multilineTextAlignment(.center)
-                        Text("The file knows you opened it anyway.")
-                            .font(.helvetica(14, weight: .medium))
-                            .foregroundColor(.white.opacity(0.72))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 20)
-                    }
-                    .padding(.top, 8)
-                }
-
-                if phase == .failed {
-                    Button("CLOSE") {
-                        dismiss()
-                    }
-                    .font(.helvetica(15, weight: .bold))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 14)
-                    .background(Color.white)
-                    .clipShape(Rectangle())
-                    .padding(.top, 12)
-                }
-            }
-            .padding(32)
-        }
-        .onAppear { startRun() }
-        .onDisappear {
-            timer?.invalidate()
-            timer = nil
-        }
-    }
-
-    private func startRun() {
-        timer?.invalidate()
-        progress = 0
-        phase = .running
-        HapticManager.shared.playGlitchHaptic()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.028, repeats: true) { t in
-            if progress < 100 {
-                progress += 1
-                if progress % 7 == 0 {
-                    glitchOffset = CGFloat.random(in: -3...3)
-                }
-                if progress == 37 || progress == 68 {
-                    HapticManager.shared.playTypeHaptic()
-                }
-            } else {
-                t.invalidate()
-                timer = nil
-                glitchOffset = 0
-                withAnimation(.easeOut(duration: 0.25)) {
-                    phase = .failed
-                }
-                HapticManager.shared.playGlitchHaptic()
-            }
-        }
     }
 }

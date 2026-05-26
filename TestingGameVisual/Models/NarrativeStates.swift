@@ -54,13 +54,7 @@ final class Scene1State: NarrativeState {
     override func didEnter(from previousState: GKState?) {
         super.didEnter(from: previousState)
         guard !manager.isRestoringFromSave else { return }
-        EvidenceBoardManager.shared.unlockFragment(forScene: "S1")
-        manager.currentAct = 1
-
-        if manager.messages.isEmpty {
-            manager.addAlexMessage("Are you awake?", type: .text)
-            manager.setChoices(["Alex?! Is that you?", "Who is this? This isn't funny.", "Ignore"])
-        }
+        manager.armScene1OpeningIfNeeded()
     }
 }
 
@@ -209,7 +203,7 @@ final class Scene5State: NarrativeState {
         manager.currentAct = 2
 
         if !manager.hasSentEndingFile {
-            manager.triggerSpecialEvent(type: .lockedFile("FILE_01.enc"), text: "I can't stay. Open this when you're ready.")
+            manager.triggerSpecialEvent(type: .lockedFile("HIDDEN-FILE.zip"), text: "I can't stay. Open this when you're ready.")
             manager.hasSentEndingFile = true
         }
 
@@ -229,7 +223,7 @@ final class Scene6State: NarrativeState {
         schedule(after: 1.5) { [weak manager] in
             guard let manager else { return }
             let glitchText = """
-            ERROR: FILE_01.enc DECRYPTING...
+            ERROR: HIDDEN-FILE.zip DECRYPTING...
             PROGRESS: 34%... 61%... 89%... INCOMPLETE
             PARTIAL CONTENTS AVAILABLE:
 

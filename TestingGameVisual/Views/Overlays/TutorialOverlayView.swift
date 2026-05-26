@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - TUTORIAL OVERLAY
-// Shown once on the player's first time in the chat room.
+// Shown until the player makes their first chat choice (pre-game / 2:13–2:14 intro).
 
 struct TutorialOverlayView: View {
     @Binding var isVisible: Bool
@@ -30,9 +30,15 @@ struct TutorialOverlayView: View {
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                     
-                    Text("Turn your volume up — sound here is evidence, not atmosphere.\nYour words shape what happens. No wrong answers, but every choice leaves a trace.\nSomeone's been trying to reach you every night at 2:14 AM.\nPay attention.")
+                    Text("• Turn your volume up — sound here is evidence, not atmosphere.\n• Your words shape what happens. No wrong answers, but every choice leaves a trace.\n• Someone's been trying to reach you every night at 2:14 AM.")
                         .font(.helvetica(14))
                         .foregroundColor(.white)
+                    Text("Pay attention.")
+                        .font(.helvetica(14))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 5)
                 }
 
                 // Tap to dismiss cue
@@ -56,7 +62,6 @@ struct TutorialOverlayView: View {
     }
 
     private func dismiss() {
-        AppSettings.shared.hasSeenTutorial = true
         withAnimation(.easeOut(duration: 0.35)) { isVisible = false }
         HapticManager.shared.playTypeHaptic()
     }

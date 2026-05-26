@@ -114,10 +114,23 @@ class GameManager: ObservableObject {
 
     /// Plain-string JSON output — `permissiveContentTransformations` does not apply to `@Generable` guided generation.
     private static let alexJSONOutputInstructions = """
-
-    OUTPUT FORMAT (required): Respond with ONLY one JSON object. No markdown, no extra text:
-    {"replies":["alex line 1","optional line 2"],"choices":["player trust line","player denial line","player avoidance line"]}
-    """
+        OUTPUT FORMAT (required): You must output ONLY a raw, valid JSON object. Do not include markdown blocks (e.g., ```json) or any extra text.
+        
+        Use this exact JSON schema:
+        {
+          "replies": [
+            "<insert Alex's first sentence here>",
+            "<insert Alex's second sentence here ONLY if needed, otherwise do not include this item>"
+          ],
+          "choices": [
+            "<insert Player Choice 1: Trust>",
+            "<insert Player Choice 2: Denial>",
+            "<insert Player Choice 3: Avoidance>"
+          ]
+        }
+        
+        CRITICAL INSTRUCTION: Do NOT copy the <...> placeholder text. Replace the <...> tags entirely with your actual generated dialogue.
+        """
 
     private struct AlexJSONPayload: Codable {
         let replies: [String]
@@ -270,7 +283,7 @@ class GameManager: ObservableObject {
     ### SPECIAL LORE CONTEXT (ACT 2 & BEYOND)
     - THE LOOP: Messages queued for 1,826 days; only delivering now.
     - MEMORY BLEEDS: You sometimes remember things the player hasn't said yet.
-    - THE ENCRYPTED TRUTH: Corrupted file "FILE_01.enc" holds your final heartbeat monitor.
+    - THE ENCRYPTED TRUTH: Corrupted file "HIDDEN-FILE.zip" holds your final heartbeat monitor.
     """
 
     // MARK: - Published State (read by views)
@@ -286,6 +299,8 @@ class GameManager: ObservableObject {
     @Published var avoidanceCount = 0
 
     @Published var isRestoringFromSave: Bool = false
+    /// Skips scene `didEnter` beats (e.g. Scene 1 opener) during reset / pre-game rewind.
+    var suppressNarrativeStateSideEffects = false
     /// True while `ChatRoomView` is on-screen — Alex replies are marked read immediately.
     @Published var isPlayerInChat: Bool = false
 
@@ -470,9 +485,46 @@ class GameManager: ObservableObject {
     // MARK: - Game Flow
 
     func triggerInitialLockscreenEvent() {
-        if messages.isEmpty {
+        guard messages.isEmpty else { return }
+        if stateMachine?.currentState is Scene1State {
+            armScene1OpeningIfNeeded()
+        } else {
             stateMachine?.enter(Scene1State.self)
         }
+    }
+
+    /// Scene 1 chat opener — only when the player opens Chat (not on home-screen reset).
+    func armScene1OpeningIfNeeded() {
+        guard !isRestoringFromSave, !suppressNarrativeStateSideEffects else { return }
+        guard messages.isEmpty else { return }
+        EvidenceBoardManager.shared.unlockFragment(forScene: "S1")
+        currentAct = 1
+        addAlexMessage("Are you awake?", type: .text)
+        setChoices(["Alex?! Is that you?", "Who is this? This isn't funny.", "Ignore"])
+    }
+
+    /// Clears pre–first-choice progress when the app leaves the foreground (not when returning to home from chat).
+    func revertToPreGameHomeHub() {
+        guard !AppSettings.shared.hasStartedGame else { return }
+
+        resetAlexPipelineForRestore()
+        messages.removeAll()
+        currentChoices.removeAll()
+        lastPlayerChoice = nil
+        lastChoiceTags = []
+        pastChoices = []
+        turnCount = 0
+        currentPath = "none"
+        denialScore = 0
+        glitchTrigger = 0
+        shadowTrigger = 0
+        crackTrigger = 0
+
+        suppressNarrativeStateSideEffects = true
+        stateMachine?.enter(Scene1State.self)
+        suppressNarrativeStateSideEffects = false
+
+        AppSettings.shared.revertPreGameSessionForAppExit()
     }
 
     // MARK: - Player Input
@@ -480,6 +532,8 @@ class GameManager: ObservableObject {
     func playerMadeChoice(_ choice: PlayerChoice) {
         guard !currentChoices.isEmpty else { return }
         guard currentScene != "ENDING" else { return }
+
+        AppSettings.shared.markGameStarted()
 
         switch choice.type {
         case .trust:
@@ -553,6 +607,13 @@ class GameManager: ObservableObject {
         }
     }
 
+    /// Keeps tutorial / pre-game flags aligned with saved progress.
+    func syncGameStartedFromProgress() {
+        if turnCount > 0 || messages.contains(where: { $0.isFromMe }) {
+            AppSettings.shared.markGameStarted()
+        }
+    }
+
     // MARK: - Restart
 
     func restartGame() {
@@ -570,7 +631,7 @@ class GameManager: ObservableObject {
         shouldQuit          = false
         isEndingFinished    = false
         
-        UserDefaults.standard.set(false, forKey: "hasWatchedIntro")
+        AppSettings.shared.resetProgress()
 
         EvidenceBoardManager.shared.resetFragments()
 
@@ -588,7 +649,9 @@ class GameManager: ObservableObject {
         }
 #endif
 
+        suppressNarrativeStateSideEffects = true
         stateMachine?.enter(Scene1State.self)
+        suppressNarrativeStateSideEffects = false
     }
 
     // MARK: - Fallback Responses

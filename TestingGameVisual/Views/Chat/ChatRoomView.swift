@@ -31,10 +31,9 @@ struct ChatRoomView: View {
     @State private var transitionActNumber  = 2
     @State private var shownActTransitions  = Set<Int>()
     
-    /// Chapter 1 end-of-build sequence: pause → footer → short "Coming soon" → dismiss (chat stays readable).
+    /// Chapter 1 end-of-build sequence: pause → "Coming soon" overlay → dismiss (chat stays readable).
     private enum Chapter1EndingPhase: Equatable {
         case idle
-        case chapterFooter
         case comingSoonTeaser
         case finished
     }
@@ -46,15 +45,7 @@ struct ChatRoomView: View {
     @State private var comingSoonTeaserOpacity: Double = 0
     
     private let chapter1EndInitialDelay: Duration = .seconds(2.5)
-    private let chapter1EndFooterHold: Duration = .seconds(3.0)
     private let chapter1EndTeaserHold: Duration = .seconds(2.5)
-    
-    private var chapter1ChatBottomInsetForEnding: CGFloat {
-        guard gameManager.currentScene == "ENDING",
-              gameManager.isEndingFinished,
-              chapter1EndingPhase == .chapterFooter else { return 0 }
-        return 120
-    }
     
     private var alexStatusText: String {
         if gameManager.currentScene == "ENDING" { return "Offline" }
@@ -73,6 +64,13 @@ struct ChatRoomView: View {
     
     private var showChoiceStrip: Bool {
         gameManager.currentScene != "ENDING" && !gameManager.currentChoices.isEmpty
+    }
+
+    private var composerBarStyle: ChatComposerBar.Style {
+        if gameManager.currentScene == "ENDING" { return .offline }
+        if gameManager.currentScene == "S5", gameManager.currentChoices.isEmpty { return .bridgeHold }
+        if gameManager.currentChoices.isEmpty { return .waiting }
+        return .choosePrompt
     }
 
     private var chatHeaderBarGradient: LinearGradient {
@@ -96,7 +94,7 @@ struct ChatRoomView: View {
             gradient: Gradient(colors: [
                  // Top: 100% opacity
                 baseColor.opacity(1.0),
-                Color(red:75 / 255.0, green:5 / 255.0, blue:5 / 255.0)
+                Color(red: 53 / 255.0, green: 3 / 255.0, blue: 3 / 255.0)
             ]),
             startPoint: .top,
             endPoint: .bottom
@@ -105,7 +103,9 @@ struct ChatRoomView: View {
     
     private func goHome() {
         gameManager.isPlayerInChat = false
-        GameSaveManager.shared.save(from: gameManager)
+        if AppSettings.shared.hasStartedGame {
+            GameSaveManager.shared.save(from: gameManager)
+        }
         onReturnToMenu()
     }
     
@@ -148,14 +148,6 @@ struct ChatRoomView: View {
             gameManager.prewarmAIIfAvailable()
             resumeAmbientEffectsIfNeeded()
             Task { await gameManager.recoverStuckConversationIfNeeded() }
-            
-            if !AppSettings.shared.hasSeenTutorial {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation(.easeIn(duration: 0.4)) {
-                        showTutorial = true
-                    }
-                }
-            }
             
             if gameManager.currentScene == "ENDING", gameManager.isEndingFinished {
                 scheduleChapter1EndingSequenceIfNeeded()
@@ -341,32 +333,30 @@ struct ChatRoomView: View {
         VStack(spacing: 0) {
             chatMessagesScroll
             
-            if gameManager.currentScene != "ENDING" {
-                Rectangle()
-                    .fill(Color.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, maxHeight: 1)
+            Rectangle()
+                .fill(Color.white.opacity(0.5))
+                .frame(maxWidth: .infinity, maxHeight: 1)
 
-                VStack(spacing: showChoiceStrip ? 8 : 0) {
-                    if showChoiceStrip {
-                        ChoiceKeyboardView(
-                            choices:     gameManager.currentChoices,
-                            denialScore: gameManager.denialScore
-                        ) { choice in
-                            withAnimation {
-                                gameManager.playerMadeChoice(choice)
-                            }
+            VStack(spacing: showChoiceStrip ? 8 : 0) {
+                if showChoiceStrip {
+                    ChoiceKeyboardView(
+                        choices:     gameManager.currentChoices,
+                        denialScore: gameManager.denialScore
+                    ) { choice in
+                        withAnimation {
+                            gameManager.playerMadeChoice(choice)
                         }
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    } else { // ADD
-                        chatComposerPlaceholder
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    ChatComposerBar(style: composerBarStyle)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, showChoiceStrip ? 20 : 22)
-                .padding(.bottom, 50)
-                .background(chatFooterBarGradient)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, showChoiceStrip ? 20 : 22)
+            .padding(.bottom, 50)
+            .background(chatFooterBarGradient)
         }
     }
     
@@ -404,7 +394,6 @@ struct ChatRoomView: View {
                     Color.clear.frame(height: 1).id("bottomAnchor")
                 }
                 .padding(.top, 10)
-                .padding(.bottom, chapter1ChatBottomInsetForEnding)
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         proxy.scrollTo("bottomAnchor", anchor: .bottom)
@@ -468,30 +457,6 @@ struct ChatRoomView: View {
         }
     }
     
-    private var chatComposerPlaceholder: some View {
-        let isBridgeHold = gameManager.currentScene == "S5" && gameManager.currentChoices.isEmpty
-        let isWaiting = gameManager.currentChoices.isEmpty && !isBridgeHold
-        let waitingBackground = Color(red: 28 / 255.0, green: 9 / 255.0, blue: 9 / 255.0)
-        let placeholderText: String = {
-            if isBridgeHold { return "Hold on…" }
-            if isWaiting { return "Waiting for Alex…" }
-            return "Choose a response…"
-        }()
-
-        return Text(placeholderText)
-            .foregroundColor(isWaiting ? .white : Color.black.opacity(0.45))
-            .font(.system(size: 15, weight: .regular))
-            .frame(maxWidth: .infinity, alignment: isWaiting ? .center : .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(isWaiting ? waitingBackground : Color(white: 0.82))
-        .overlay(
-            Rectangle()
-                .stroke(isWaiting ? Color.white : Color.black.opacity(0.08), lineWidth: 1)
-        )
-        .padding(.horizontal, 10)
-    }
-    
     // MARK: Overlays
     
     @ViewBuilder
@@ -519,93 +484,56 @@ struct ChatRoomView: View {
         .allowsHitTesting(false)
         
         if gameManager.currentScene == "ENDING", gameManager.isEndingFinished,
-           chapter1EndingPhase == .chapterFooter || chapter1EndingPhase == .comingSoonTeaser {
+           chapter1EndingPhase == .comingSoonTeaser {
             chapter1EndingSequenceLayer
                 .zIndex(200)
-                .allowsHitTesting(chapter1EndingPhase == .comingSoonTeaser)
+                .allowsHitTesting(true)
         }
     }
     
     // MARK: Chapter 1 Ending Sequence
     
-    private var chapter1EndChapterFooterBanner: some View {
-        VStack(spacing: 6) {
-            Text("END OF CHAPTER 1")
-                .font(.helvetica(11))
-                .fontWeight(.heavy)
-                .tracking(2.5)
-                .foregroundColor(.white.opacity(0.92))
-            Text("This build is the full Chapter 1 arc.")
-                .font(.helvetica(12))
-                .foregroundColor(.white.opacity(0.56))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 4)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.black.opacity(0.55))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
-    }
-    
     private var chapter1EndingSequenceLayer: some View {
-        ZStack(alignment: .bottom) {
-            if chapter1EndingPhase == .comingSoonTeaser {
-                ZStack {
-                    Color.black
-                        .opacity(0.74 * comingSoonTeaserOpacity)
-                        .ignoresSafeArea()
-                    
-                    VStack {
-                        Spacer(minLength: 0)
-                        VStack(spacing: 14) {
-                            Text("Coming soon")
-                                .font(.helvetica(26))
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                            Text("More of Alex’s story")
-                                .font(.helvetica(12))
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white.opacity(0.48))
-                                .tracking(1.5)
-                            Text("You can scroll back through the thread above whenever you like.")
-                                .font(.helvetica(13))
-                                .foregroundColor(.white.opacity(0.68))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 8)
-                        }
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .fill(Color.white.opacity(0.07))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                                )
-                        )
-                        .scaleEffect(comingSoonTeaserScale)
-                        .opacity(comingSoonTeaserOpacity)
-                        .padding(.horizontal, 28)
-                        Spacer(minLength: 0)
-                    }
-                }
-                .transition(.opacity)
-            }
+        ZStack {
+            Color.black
+                .opacity(0.74 * comingSoonTeaserOpacity)
+                .ignoresSafeArea()
             
-            if chapter1EndingPhase == .chapterFooter {
-                chapter1EndChapterFooterBanner
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            VStack {
+                Spacer(minLength: 0)
+                VStack(spacing: 14) {
+                    Text("Coming soon")
+                        .font(.helvetica(26))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    Text("More of Alex’s story")
+                        .font(.helvetica(12))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.48))
+                        .tracking(1.5)
+                    Text("You can scroll back through the thread above whenever you like.")
+                        .font(.helvetica(13))
+                        .foregroundColor(.white.opacity(0.68))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
+                .padding(.horizontal, 26)
+                .padding(.vertical, 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color.white.opacity(0.07))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                )
+                .scaleEffect(comingSoonTeaserScale)
+                .opacity(comingSoonTeaserOpacity)
+                .padding(.horizontal, 28)
+                Spacer(minLength: 0)
             }
         }
+        .transition(.opacity)
     }
     
     private func scheduleChapter1EndingSequenceIfNeeded() {
@@ -619,13 +547,6 @@ struct ChatRoomView: View {
         
         Task { @MainActor in
             try? await Task.sleep(for: chapter1EndInitialDelay)
-            guard run == chapter1EndingRunID else { return }
-            
-            withAnimation(.easeOut(duration: 0.45)) {
-                chapter1EndingPhase = .chapterFooter
-            }
-            
-            try? await Task.sleep(for: chapter1EndFooterHold)
             guard run == chapter1EndingRunID else { return }
             
             comingSoonTeaserScale = 0.88
@@ -674,14 +595,6 @@ struct ChatRoomView: View {
         let heartbeatScenes = ["S7", "S8"]
         if heartbeatScenes.contains(gameManager.currentScene) {
             gameManager.startHeartbeat()
-        }
-    }
-    
-    private func actTitleName(for act: Int) -> String {
-        switch act {
-        case 2:  return "The File"
-        case 3:  return "Resolution"
-        default: return "First Contact"
         }
     }
 }

@@ -5,12 +5,13 @@ import SwiftUI
 struct ContentView: View {
 
     @StateObject private var gameManager = GameManager()
-    @AppStorage("hasWatchedIntro") private var hasWatchedIntro = false
     @State private var currentScreen: AppScreen = .introVideo
     @State private var homeChatUnlocked = false
     /// Bumped whenever the player invokes "Reset All Game Data" so `HomescreenView` is rebuilt
     /// with fresh @State (intro animation, glitch timer, lock-feed snapshot).
     @State private var homeSessionID = UUID()
+    /// After backgrounding pre–first-choice, rebuild home at 2:13 on next foreground.
+    @State private var rewindHomeOnNextActive = false
     @Environment(\.scenePhase) var scenePhase
 
     var body: some View {
@@ -23,12 +24,7 @@ struct ContentView: View {
                 case .introVideo:
                     IntroVideoView {
                         withAnimation(.easeIn(duration: 0.5)) {
-                            if hasWatchedIntro {
-                                currentScreen = .home
-                                AudioManager.shared.playBackgroundMusic(filename: "Horror")
-                            } else {
-                                currentScreen = .titleVideo
-                            }
+                            routeAfterLogoIntro()
                         }
                     }
                     .transition(.opacity)
@@ -36,8 +32,7 @@ struct ContentView: View {
                 case .titleVideo:
                     TitleVideoView {
                         withAnimation(.easeIn(duration: 0.5)) {
-                            currentScreen = .home
-                            AudioManager.shared.playBackgroundMusic(filename: "Horror")
+                            completeTitleVideoAndOpenHome()
                         }
                     }
                     .transition(.opacity)
@@ -61,10 +56,10 @@ struct ContentView: View {
 
                 case .game:
                     ChatRoomView(gameManager: gameManager) {
-                        GameSaveManager.shared.save(from: gameManager)
+                        homeChatUnlocked = AppSettings.shared.hasStartedGame
+                            || AppSettings.shared.hasCompletedHome214Transition
                         withAnimation(.easeIn(duration: 0.35)) {
                             currentScreen = .home
-                            homeChatUnlocked = true
                         }
                     }
                     .transition(.opacity)
@@ -89,10 +84,24 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
-                GameSaveManager.shared.save(from: gameManager)
+                if AppSettings.shared.hasStartedGame {
+                    GameSaveManager.shared.save(from: gameManager)
+                } else {
+                    gameManager.revertToPreGameHomeHub()
+                    GameSaveManager.shared.clearSave()
+                    rewindHomeOnNextActive = true
+                }
                 gameManager.scheduleHorrorNotification()
             } else if newPhase == .active {
                 gameManager.cancelNotifications()
+                if rewindHomeOnNextActive {
+                    rewindHomeOnNextActive = false
+                    homeChatUnlocked = false
+                    homeSessionID = UUID()
+                    withAnimation(.easeIn(duration: 0.35)) {
+                        openPreGameEntryScreen()
+                    }
+                }
                 if currentScreen == .home {
                     gameManager.resumePendingAlexReplyIfNeeded()
                 }
@@ -110,6 +119,35 @@ struct ContentView: View {
         AppSettings.shared.totalClears = 0
         homeChatUnlocked = false
         homeSessionID = UUID()
+        AudioManager.shared.stopBackgroundMusic()
+        withAnimation(.easeIn(duration: 0.5)) {
+            currentScreen = .titleVideo
+        }
+    }
+
+    /// Logo intro finished — skip title video if this pre-game session already saw it.
+    private func routeAfterLogoIntro() {
+        if AppSettings.shared.shouldShowTitleVideo {
+            currentScreen = .titleVideo
+        } else {
+            completeTitleVideoAndOpenHome()
+        }
+    }
+
+    private func completeTitleVideoAndOpenHome() {
+        AppSettings.shared.markTitleVideoCompleted()
+        currentScreen = .home
+        AudioManager.shared.playBackgroundMusic(filename: "Horror")
+    }
+
+    /// Pre-game rewind (background) or reset — title video when appropriate, else home.
+    private func openPreGameEntryScreen() {
+        if AppSettings.shared.shouldShowTitleVideo {
+            currentScreen = .titleVideo
+            AudioManager.shared.stopBackgroundMusic()
+        } else {
+            completeTitleVideoAndOpenHome()
+        }
     }
 }
 

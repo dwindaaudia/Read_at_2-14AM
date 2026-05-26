@@ -130,6 +130,7 @@ final class GameSaveManager {
         else           { manager.stateMachine?.enter(Scene1State.self) }
 
         manager.isRestoringFromSave = false
+        manager.syncGameStartedFromProgress()
         // Audit §10.3: rehydrate the LLM session with the saved conversation so Alex
         // resumes with full memory of prior turns, not a blank persona.
         manager.rebuildSessionFromHistory(manager.messages)
