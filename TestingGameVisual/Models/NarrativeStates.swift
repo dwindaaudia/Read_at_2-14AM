@@ -214,12 +214,7 @@ final class Scene5State: NarrativeState {
         }
 
         manager.currentChoices = []
-
-        schedule(after: Self.bridgeAdvanceDelay) { [weak manager] in
-            guard let manager else { return }
-            manager.turnCount = 6
-            manager.stateMachine?.enter(Scene6State.self)
-        }
+        manager.scheduleScene5BridgeAdvanceIfNeeded()
     }
 }
 
@@ -247,7 +242,7 @@ final class Scene6State: NarrativeState {
 
         schedule(after: 3.0) { [weak manager] in
             guard let manager else { return }
-            let triggerChoice = PlayerChoice(text: "[SYSTEM: File opened by player]", type: .trust)
+            let triggerChoice = PlayerChoice(text: "I opened the file.", type: .trust)
             manager.lastPlayerChoice = triggerChoice
             Task { await manager.generateAlexReply() }
         }
@@ -267,7 +262,7 @@ final class Scene6State: NarrativeState {
         let situation = """
         WHAT JUST HAPPENED:
         The encrypted file you sent earlier just forcefully opened itself on the player's screen.
-        It revealed a note: "kalau kamu baca ini, berarti kamu terlambat." (if you read this, you're too late) and the timestamp 02:14 AM.
+        It revealed a note: "if you're reading this, you're too late." and the timestamp 02:14 AM.
 
         HOW YOU REACT:
         \(pathText)
@@ -346,7 +341,7 @@ final class Scene8State: NarrativeState {
 
         schedule(after: 4.5) { [weak manager] in
             manager?.triggerSpecialEvent(
-                type: .voiceNote("VN_X1.mp3"),
+                type: .voiceNote("VN_H2.mp3"),
                 text: "i've been trying to reach you since that night..."
             )
         }

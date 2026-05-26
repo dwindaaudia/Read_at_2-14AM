@@ -6,6 +6,7 @@ struct VoiceNotePlayerBubble: View {
     let filename: String
     let isFromMe: Bool
     var autoPlay: Bool = false
+    var onAutoPlayed: (() -> Void)? = nil
 
     @StateObject private var controller = VoiceNoteAudioController()
     @State private var barHeights: [CGFloat] = (0..<28).map { _ in CGFloat.random(in: 6...22) }
@@ -57,6 +58,7 @@ struct VoiceNotePlayerBubble: View {
             guard autoPlay, !didAutoPlay, !controller.isPlaying else { return }
             didAutoPlay = true
             controller.toggle(filename: filename)
+            onAutoPlayed?()
         }
     }
 

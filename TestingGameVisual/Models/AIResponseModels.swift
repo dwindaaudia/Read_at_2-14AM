@@ -7,29 +7,21 @@ import FoundationModels
 @Generable
 struct AlexResponse {
     @Guide(description: """
-    A list of 1-2 messages from Alex. 
-    CHARACTER VOICE: 
-    - Use 'Alex persona': intimate, lowercase, fragmented, and eerily calm. 
-    - Messages should feel like a digital ghost reaching out through static.
-    - Mention sensory details if appropriate (the cold, the rain, the sound of water).
-    CONTENT RULES:
-    - First message MUST specifically acknowledge the player's last input.
-    - Second message should push the current SCENE GOAL.
-    - NEVER repeat sentences found in RECENT CHAT history.
+    1-2 chat bubbles from ALEX only (not the player).
+    Alex speaks TO the player using "you". English only.
+    Voice: intimate, lowercase, fragmented, eerily calm; max ~15 words per bubble.
+    Acknowledge the player's last message first, then advance the scene goal.
+    Never repeat lines from recent chat history.
     """)
     var replies: [String]
     
     @Guide(description: """
-    Exactly 3 unique player dialogue options. They must be psychologically distinct:
-    1. TRUST/CONFIDENCE (Blue): Bold, direct, or empathetic. The player tries to help Alex or stays grounded in logic. 
-    2. DENIAL/HOSTILITY (Red): Fearful, angry, or rejecting. The player refuses the reality or blames Alex.
-    3. AVOIDANCE/CONFUSION (Gray): Hesitant, lost, or paranoid. The player is overwhelmed by the glitches.
-    
-    DIALOGUE RULES:
-    - Use natural, raw conversational English. 
-    - DO NOT use labels like 'Confidence:' or 'Choice 1:'. 
-    - NO 'Yes/No' answers; use full, emotive sentences.
-    - Every choice must be a direct response to the 'replies' you just wrote.
+    Exactly 3 lines the PLAYER would type back to Alex — not Alex speaking.
+    English only. First person (I, me, my). Normal capitalization OK; full sentences.
+    No labels ('Choice 1:', 'Trust:', etc.). Direct reactions to replies[].
+    Order: [0] trust/helpful, [1] denial/hostile, [2] avoidance/hesitant.
+    WRONG (Alex voice): "i'm still on the bridge. it's cold."
+    RIGHT (player voice): "Where are you right now?"
     """)
     var choices: [String]
 }

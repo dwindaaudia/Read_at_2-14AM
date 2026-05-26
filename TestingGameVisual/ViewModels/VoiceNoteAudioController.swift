@@ -15,8 +15,8 @@ final class VoiceNoteAudioController: ObservableObject {
     }
     
     private func play(filename: String) {
-        let name = filename.replacingOccurrences(of: ".mp3", with: "")
-        guard let url = Bundle.main.url(forResource: name, withExtension: "mp3") else {
+        guard let url = AudioManager.audioResourceURL(for: filename) else {
+            print("VoiceNoteAudioController: file '\(filename)' not found.")
             simulateFallback()
             return
         }

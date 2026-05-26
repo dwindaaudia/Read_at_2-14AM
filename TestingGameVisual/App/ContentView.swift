@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
 
     @StateObject private var gameManager = GameManager()
+    @AppStorage("hasWatchedIntro") private var hasWatchedIntro = false
     @State private var currentScreen: AppScreen = .introVideo
     @State private var homeChatUnlocked = false
     /// Bumped whenever the player invokes "Reset All Game Data" so `HomescreenView` is rebuilt
@@ -22,7 +23,12 @@ struct ContentView: View {
                 case .introVideo:
                     IntroVideoView {
                         withAnimation(.easeIn(duration: 0.5)) {
-                            currentScreen = .titleVideo
+                            if hasWatchedIntro {
+                                currentScreen = .home
+                                AudioManager.shared.playBackgroundMusic(filename: "Horror")
+                            } else {
+                                currentScreen = .titleVideo
+                            }
                         }
                     }
                     .transition(.opacity)

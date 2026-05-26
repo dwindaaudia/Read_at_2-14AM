@@ -34,20 +34,19 @@ struct ChoiceKeyboardView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 24)
-                .background {
-                    ZStack {
-                        Self.rowFill
-                        HStack(spacing: 0) {
-                            
-                            Spacer(minLength: 0)
-                            
-                        }
-                    }
+                .background(Self.rowFill)
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .stroke(Color.black, lineWidth: 8)
+                        .blur(radius: 4)
+                        .mask(Rectangle())
                 }
                 .overlay(
                     Rectangle()
-                        .stroke(Color.black.opacity(1), lineWidth: 3)
+                        .strokeBorder(Color.black, lineWidth: 2)
                 )
+                .shadow(color: Color.black.opacity(0.25), radius: 2, x: 0, y: 1)
         }
         .buttonStyle(.plain)
     }

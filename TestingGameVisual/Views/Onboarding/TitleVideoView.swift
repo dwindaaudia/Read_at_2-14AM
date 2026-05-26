@@ -63,9 +63,6 @@ struct TitleVideoView: View {
                 loadPlayerIfNeeded()
             }
         }
-        .task {
-            loadPlayerIfNeeded()
-        }
         .task(id: player) {
             await observePlaybackEnd()
         }
@@ -108,7 +105,7 @@ struct TitleVideoView: View {
     // MARK: Playback
 
     private func loadPlayerIfNeeded() {
-        guard player == nil else { return }
+        guard !hasWatchedIntro, player == nil else { return }
 
         let url = Bundle.main.url(forResource: "2.14AM", withExtension: "mov")
         print("[TitleVideoView] 2.14AM.mov bundle URL: \(url?.path ?? "nil")")

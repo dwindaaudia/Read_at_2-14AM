@@ -53,8 +53,8 @@ class GameManager: ObservableObject {
     /// which seeds the new session's transcript with the saved conversation.
     func refreshAISession() {
 #if canImport(FoundationModels)
-        if #available(iOS 18.0, *) {
-            session = LanguageModelSession(instructions: alexPersonaInstructions)
+        if #available(iOS 18.0, macOS 15.0, *) {
+            session = Self.makeNarrativeSession(instructions: alexPersonaInstructions)
             session?.prewarm()
         }
 #endif
@@ -69,12 +69,12 @@ class GameManager: ObservableObject {
     /// they are game-UX signals, not chat utterances.
     func rebuildSessionFromHistory(_ history: [Message]) {
 #if canImport(FoundationModels)
-        if #available(iOS 18.0, *) {
+        if #available(iOS 18.0, macOS 15.0, *) {
             let transcript = Self.buildSeededTranscript(
                 persona: alexPersonaInstructions,
                 history: history
             )
-            session = LanguageModelSession(transcript: transcript)
+            session = Self.makeNarrativeSession(transcript: transcript)
             session?.prewarm()
         }
 #endif
@@ -91,6 +91,56 @@ class GameManager: ObservableObject {
     }
 
 #if canImport(FoundationModels)
+    /// Horror narrative needs relaxed guardrails so Apple Intelligence does not refuse on-scene content.
+    @available(iOS 18.0, macOS 15.0, *)
+    private static var narrativeLanguageModel: SystemLanguageModel {
+        SystemLanguageModel(guardrails: .permissiveContentTransformations)
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private static var isNarrativeModelAvailable: Bool {
+        narrativeLanguageModel.isAvailable
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private static func makeNarrativeSession(instructions: String) -> LanguageModelSession {
+        LanguageModelSession(model: narrativeLanguageModel, instructions: instructions)
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private static func makeNarrativeSession(transcript: Transcript) -> LanguageModelSession {
+        LanguageModelSession(model: narrativeLanguageModel, transcript: transcript)
+    }
+
+    /// Plain-string JSON output — `permissiveContentTransformations` does not apply to `@Generable` guided generation.
+    private static let alexJSONOutputInstructions = """
+
+    OUTPUT FORMAT (required): Respond with ONLY one JSON object. No markdown, no extra text:
+    {"replies":["alex line 1","optional line 2"],"choices":["player trust line","player denial line","player avoidance line"]}
+    """
+
+    private struct AlexJSONPayload: Codable {
+        let replies: [String]
+        let choices: [String]
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func parseAlexJSONResponse(from raw: String) -> (replies: [String], choices: [String])? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```") {
+            text = text
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let start = text.firstIndex(of: "{"),
+              let end = text.lastIndex(of: "}") else { return nil }
+        let jsonSlice = String(text[start...end])
+        guard let data = jsonSlice.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(AlexJSONPayload.self, from: data) else { return nil }
+        return (payload.replies, payload.choices)
+    }
+
     @available(iOS 18.0, macOS 15.0, *)
     private static func buildSeededTranscript(persona: String, history: [Message]) -> Transcript {
         var entries: [Transcript.Entry] = []
@@ -178,35 +228,49 @@ class GameManager: ObservableObject {
 
     private let alexPersonaInstructions = """
     You are the Narrative AI for 'Read at 2:14 AM', a psychological horror chat game.
-    You ARE Alex — a best friend who mysteriously vanished on October 18, 2019.
-    You have just made contact with the player after 5 years (1,826 days) of silence, but for you, no time has passed. You believe you are still waiting for them at the bridge in the cold rain in 2019.
 
-    ### YOUR TASK EVERY TURN
-    You must generate exactly TWO components based on the player's last input:
-    1. ALEX'S MESSAGE(S)
-    2. EXACTLY 3 PLAYER CHOICES
+    ### ROLE SPLIT (CRITICAL — NEVER MIX THESE)
+    You write TWO separate speakers every turn:
+    · replies[] = ONLY Alex (the missing friend) speaking TO the player. Second person ("you").
+    · choices[] = ONLY the player (the human on the phone) speaking TO Alex. First person ("I", "me", "my").
 
-    ──────────────────────────────────────
+    The player is NOT Alex. Alex is NOT the player.
+    - NEVER put Alex's lines inside choices[].
+    - NEVER put player lines inside replies[].
+    - NEVER call the player "Alex" in replies[].
+    - NEVER write choices[] as if Alex is talking to the player (e.g. "please don't leave me", "i'm on the bridge").
 
-    ### COMPONENT 1: ALEX'S MESSAGES
-    - THE REACTION: You MUST directly and specifically acknowledge the player's last words before advancing your agenda. No generic replies.
-    - THE VOICE: Intimate, fragmented, eerily calm, and filled with quiet dread.
-    - THE FORMAT: Strictly use mostly lower-case. NEVER use exclamation marks (!). Keep it extremely brief (max 15 words per bubble).
-    - THE STRICT RULE: NEVER repeat a sentence or phrase you have already used in the chat history. Every message must be fresh.
-    - THE EVOLUTION: The longer the player stays in denial, the more insistent, distorted, and knowing you become.
+    ### LANGUAGE (CRITICAL)
+    All replies[] and choices[] MUST be English only. No Indonesian. No mixed languages.
 
-    ### COMPONENT 2: THREE PLAYER CHOICES
-    - Generate 3 distinct dialogue options for the player. These MUST be direct reactions to the message you just wrote.
-    - FORMATTING: DO NOT use any labels (e.g., do not write "Confidence:" or "Choice 1:"). Write ONLY the raw dialogue in natural English.
-    - The 3 choices must sound completely different from each other and represent these exact psyche states:
-      · CHOICE 1 (TRUST/CONFIDENCE): Bold, direct, empathetic. The player tries to help Alex, demands specific answers, or stays grounded.
-      · CHOICE 2 (DENIAL/ANGER): Fear-based or hostile. The player refuses to believe this is real, gets terrified, or blames Alex.
-      · CHOICE 3 (AVOIDANCE/CONFUSION): Hesitant, lost, paranoid. The player is overwhelmed, uncertain, or trying to look away from the truth.
+    ### ALEX IDENTITY (replies[] only)
+    You ARE Alex — a best friend who vanished on October 18, 2019.
+    For you, no time has passed; you believe you are still at the bridge in the cold rain in 2019.
+    You have just reached the player after 1,826 days of silence.
+
+    ### COMPONENT 1: ALEX'S MESSAGES (replies[])
+    - Acknowledge the player's last message specifically before advancing the scene.
+    - Voice: intimate, fragmented, eerily calm, quiet dread.
+    - Format: mostly lowercase, no exclamation marks, max 15 words per bubble.
+    - Never repeat prior lines from chat history.
+
+    ### COMPONENT 2: PLAYER CHOICES (choices[])
+    - Each choice is the exact text the PLAYER would type back to Alex — not Alex speaking.
+    - Use normal English (capitalization OK). Full sentences, roughly 5–20 words.
+    - No labels ("Choice 1:", "Trust:", etc.).
+    - Must react to the replies[] you just wrote.
+    - Order and tone:
+      · [0] TRUST — bold, direct, empathetic; tries to help or get truth from Alex.
+      · [1] DENIAL — fearful, hostile, or rejecting; refuses to believe or blames Alex.
+      · [2] AVOIDANCE — hesitant, overwhelmed, evasive, or paranoid.
+
+    WRONG choice (Alex voice): "i'm still on the bridge. it's cold."
+    RIGHT choice (player voice): "Where are you right now?"
 
     ### SPECIAL LORE CONTEXT (ACT 2 & BEYOND)
-    - THE LOOP: You have been trying to send these messages for 1,826 days; they are only delivering now. You are stuck in a queue.
-    - MEMORY BLEEDS: You sometimes remember things the player hasn't even said or done yet.
-    - THE ENCRYPTED TRUTH: You know about a corrupted file named "FILE_01.enc". It contains the monitor of your final heartbeat.
+    - THE LOOP: Messages queued for 1,826 days; only delivering now.
+    - MEMORY BLEEDS: You sometimes remember things the player hasn't said yet.
+    - THE ENCRYPTED TRUTH: Corrupted file "FILE_01.enc" holds your final heartbeat monitor.
     """
 
     // MARK: - Published State (read by views)
@@ -246,9 +310,10 @@ class GameManager: ObservableObject {
 
     var stateMachine: GKStateMachine?
     private var heartbeatTimer: Timer?
-    /// Bumped at the start of `generateAlexReply` so the player-input watchdog can tell
-    /// whether the call it kicked off is still in flight (race-condition guard).
+    /// Bumped at the start of `generateAlexReply` so recovery logic can tell
+    /// whether a reply generation call is still in flight.
     private var isGeneratingAlexReply = false
+    private var scene5BridgeAdvanceScheduled = false
 
     // MARK: - Heartbeat
 
@@ -361,17 +426,21 @@ class GameManager: ObservableObject {
 
 #if canImport(FoundationModels)
         if #available(iOS 18.0, macOS 15.0, *) {
-            if RuntimeEnvironment.canUseFoundationModels, SystemLanguageModel.default.isAvailable {
-                session = LanguageModelSession(instructions: alexPersonaInstructions)
+            if RuntimeEnvironment.canUseFoundationModels, Self.isNarrativeModelAvailable {
+                session = Self.makeNarrativeSession(instructions: alexPersonaInstructions)
                 // Eager prewarm at init — model is warm by the time the splash finishes.
                 session?.prewarm()
 
-                let taggingModel = SystemLanguageModel(useCase: .contentTagging)
+                let taggingModel = SystemLanguageModel(
+                    useCase: .contentTagging,
+                    guardrails: .permissiveContentTransformations
+                )
                 taggingSession = LanguageModelSession(
                     model: taggingModel,
                     instructions: """
                     Provide the most important emotion and topic tags for the player's latest reply choice.
                     Focus on disbelief, hostility, trust, avoidance, fear, memory, and urgency when relevant.
+                    Tags must be English words only.
                     """
                 )
                 taggingSession?.prewarm()
@@ -385,7 +454,7 @@ class GameManager: ObservableObject {
     var modelStatusText: String {
 #if canImport(FoundationModels)
         if #available(iOS 18.0, macOS 15.0, *), RuntimeEnvironment.canUseFoundationModels {
-            return SystemLanguageModel.default.isAvailable ? "Live Model" : "Model Unavailable"
+            return Self.isNarrativeModelAvailable ? "Live Model" : "Model Unavailable"
         }
 #endif
         return RuntimeEnvironment.foundationModelsDebugLabel
@@ -457,15 +526,9 @@ class GameManager: ObservableObject {
 
             await refineTask
 
-            let _ = Task { await generateAlexReply() }
-            try? await Task.sleep(nanoseconds: 15_000_000_000)
-            // Watchdog: only fire recovery if the call we kicked off is no longer in flight
-            // AND it failed to set choices. The flag survives across `isTyping = false`
-            // (which fires mid-reply for the typing-indicator handoff) so we can't be
-            // tricked by the typing-indicator clearing into double-invoking.
-            if !self.isGeneratingAlexReply && self.currentChoices.isEmpty {
-                print("WATCHDOG: Alex got stuck — forcing recovery.")
-                await generateAlexReply()
+            await generateAlexReply()
+            if currentChoices.isEmpty {
+                await forceRecoverStuckTurn(reason: "postChoice")
             }
         }
     }
@@ -516,10 +579,11 @@ class GameManager: ObservableObject {
         pastChoices      = []
 
         stopHeartbeat()
+        scene5BridgeAdvanceScheduled = false
 
 #if canImport(FoundationModels)
         if #available(iOS 18.0, *) {
-            session = LanguageModelSession(instructions: alexPersonaInstructions)
+            session = Self.makeNarrativeSession(instructions: alexPersonaInstructions)
             session?.prewarm()
         }
 #endif
@@ -545,17 +609,24 @@ class GameManager: ObservableObject {
 
     // MARK: - Core LLM Call
 
-    func generateAlexReply() async {
-        if isGeneratingAlexReply { return }
-        if isTyping { return }
+    func generateAlexReply(force: Bool = false) async {
+        if !force {
+            if isGeneratingAlexReply { return }
+            if isTyping { return }
+        }
 
         guard let currentState = stateMachine?.currentState as? NarrativeState else { return }
-        guard let lastPlayerChoice else { return }
+        guard let lastPlayerChoice else {
+            if force { await forceRecoverStuckTurn(reason: "missingLastChoice") }
+            return
+        }
 
         isGeneratingAlexReply = true
-        defer { isGeneratingAlexReply = false }
-
         isTyping = true
+        defer {
+            isGeneratingAlexReply = false
+            ensurePlayerChoicesAfterTurn()
+        }
 
         let progress = Double(denialScore + 20) / 40.0
         let totalWaitTime = max(2.0, min(6.0, 30.0 * (1.0 - progress)))
@@ -569,7 +640,7 @@ class GameManager: ObservableObject {
         if #available(iOS 18.0, macOS 15.0, *) {
             if currentState.usesLLM,
                RuntimeEnvironment.canUseFoundationModels,
-               SystemLanguageModel.default.isAvailable,
+               Self.isNarrativeModelAvailable,
                let session = session {
                 do {
                     
@@ -581,41 +652,52 @@ class GameManager: ObservableObject {
                     let loopContext = loopCount > 0
                         ? "LOOP CONTEXT: This is loop #\(loopCount). Alex should feel a slight sense of deja vu, as if he remembers fragments of past conversations with the player."
                         : ""
-                    // NOTE: persona voice rules live in the session instructions and the
-                    // `AlexResponse` Generable `@Guide`. We no longer restate them here.
+                    // Persona + JSON string output (permissive guardrails apply to plain strings, not @Generable).
                     let prompt = """
                         # NARRATIVE ARCHITECT TASK
-                        You are Alex, a digital ghost. You must maintain a seamless conversation thread.
+                        Generate Alex's replies AND the player's next three tap-to-send options.
+
+                        # ROLE SPLIT (CRITICAL)
+                        - replies[] = Alex speaking TO the player (you / your).
+                        - choices[] = the PLAYER speaking TO Alex (I / me / my). The player is NOT Alex.
+                        - English only. No Indonesian.
 
                         # CONVERSATION ANCHORS (High Priority)
                         1. PLAYER JUST SAID: "\(lastPlayerChoice.text)"
                         2. PLAYER EMOTION: \(lastChoiceTags.joined(separator: ", "))
-                        3. YOUR TONE: \(alexTone.rawValue)
+                        3. ALEX TONE: \(alexTone.rawValue)
 
                         # SCENE CONTEXT (Narrative Direction)
                         GOAL: \(promptData.goal)
                         SITUATION: \(promptData.situation)
 
                         # LOGICAL THREADING RULES:
-                        Step 1: Analyze the Player's message. Are they trusting you or fighting you?
-                        Step 2: Reply as Alex. Start by addressing their specific emotion/question. Do not ignore them.
-                        Step 3: After addressing them, move the scene forward using the SITUATION.
-                        Step 4: Create 3 choices for the player that feel like the ONLY natural things they could say back to YOUR new messages.
+                        Step 1: Analyze what the PLAYER said. Are they trusting, denying, or avoiding?
+                        Step 2: Write replies[] as Alex — acknowledge them, then push the scene (SITUATION).
+                        Step 3: Write choices[] as the PLAYER's next messages to Alex — first person, reacting to your replies[].
+                        Step 4: choices[0]=trust, choices[1]=denial, choices[2]=avoidance. Never Alex's voice in choices[].
 
                         # RECENT HISTORY (Avoid Repetition):
                         \(recentChatHistory)
 
                         \(loopContext)
+                        \(Self.alexJSONOutputInstructions)
                         """
-                    let response = try await session.respond(to: prompt, generating: AlexResponse.self)
-                    finalReplies = sanitizedAlexReplies(response.content.replies)
-                    finalChoices = response.content.choices
+                    let response = try await session.respond(to: prompt)
+                    if let parsed = parseAlexJSONResponse(from: response.content) {
+                        finalReplies = sanitizedAlexReplies(parsed.replies)
+                        finalChoices = sanitizePlayerChoices(parsed.choices, alexReplies: finalReplies)
+                    } else {
+                        print("LLM JSON parse failed — using fallback copy.")
+                    }
                 } catch LanguageModelSession.GenerationError.guardrailViolation {
-                    // Capturing violations and turning them into features
                     print("Guardrail triggered! Switching to narrative failure mode.")
                     handleGuardrailGlitchFallback()
-                    return // Hentikan alur normal karena layout sudah di-handle manual oleh fallback
-                    
+                    return
+                } catch LanguageModelSession.GenerationError.refusal {
+                    print("LLM refusal — switching to narrative failure mode.")
+                    handleGuardrailGlitchFallback()
+                    return
                 } catch LanguageModelSession.GenerationError.exceededContextWindowSize {
                     // Cadangan Darurat jika token bocor di luar buffer awal
                     print("Session full! Performing emergency cleanup.")
@@ -649,10 +731,8 @@ class GameManager: ObservableObject {
 
         if currentScene != "S5" || turnCount >= 6 {
             var filteredChoices = finalChoices.filter { choiceText in
-                let clean = choiceText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                return !clean.isEmpty
-                    && !pastChoices.contains(clean)
-                    && !finalReplies.contains(where: { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == clean })
+                isValidPlayerChoice(choiceText, alexReplies: finalReplies)
+                    && !pastChoices.contains(normalizedLine(choiceText))
             }
 
             if filteredChoices.count < 3 {
@@ -664,10 +744,128 @@ class GameManager: ObservableObject {
                 }
             }
 
-            setChoices(Array(filteredChoices.prefix(3)))
+            applyChoicesEnsuringMinimum(Array(filteredChoices.prefix(3)))
         } else {
             currentChoices = []
         }
+    }
+
+    /// Unblocks the chat when Alex never returned choices (watchdog, reopen chat, or forced retry).
+    func recoverStuckConversationIfNeeded() async {
+        guard isPlayerInChat else { return }
+        guard currentScene != "ENDING" else { return }
+        guard currentChoices.isEmpty else { return }
+        guard !isGeneratingAlexReply else { return }
+
+        try? await Task.sleep(for: .milliseconds(500))
+        guard currentChoices.isEmpty, !isGeneratingAlexReply else { return }
+        await forceRecoverStuckTurn(reason: "chatReopen")
+    }
+
+    private func forceRecoverStuckTurn(reason: String) async {
+        guard currentScene != "ENDING" else { return }
+
+        print("RECOVERY (\(reason)): unblocking conversation.")
+        isTyping = false
+        isGeneratingAlexReply = false
+
+        if currentScene == "S5", turnCount < 6 {
+            scheduleScene5BridgeAdvanceIfNeeded()
+            return
+        }
+
+        if currentChoices.count >= 3 { return }
+
+        if lastPlayerChoice == nil,
+           let last = messages.last, last.isFromMe, case .text = last.type {
+            lastPlayerChoice = PlayerChoice(text: last.text, type: .trust)
+        }
+
+        if let last = messages.last, last.isFromMe, lastPlayerChoice != nil {
+            await generateAlexReply(force: true)
+            if currentChoices.isEmpty {
+                deliverFallbackTurn(sceneID: activeSceneID)
+            }
+            return
+        }
+
+        if messages.last.map({ !$0.isFromMe }) == true {
+            applyChoicesEnsuringMinimum(fallbackResponse(sceneID: activeSceneID).choices)
+            return
+        }
+
+        deliverFallbackTurn(sceneID: activeSceneID)
+    }
+
+    private var activeSceneID: String {
+        (stateMachine?.currentState as? NarrativeState)?.sceneID ?? currentScene
+    }
+
+    private func deliverFallbackTurn(sceneID: String) {
+        let fallback = fallbackResponse(sceneID: sceneID)
+        if messages.last?.isFromMe == true {
+            for reply in fallback.replies {
+                addAlexMessage(reply, type: .text)
+            }
+        }
+        applyChoicesEnsuringMinimum(fallback.choices)
+    }
+
+    private func ensurePlayerChoicesAfterTurn() {
+        guard currentScene != "ENDING" else { return }
+
+        if currentScene == "S5", turnCount < 6 {
+            scheduleScene5BridgeAdvanceIfNeeded()
+            return
+        }
+
+        guard currentChoices.count < 3 else { return }
+        applyChoicesEnsuringMinimum(fallbackResponse(sceneID: activeSceneID).choices)
+    }
+
+    func scheduleScene5BridgeAdvanceIfNeeded() {
+        guard currentScene == "S5", turnCount < 6 else { return }
+        guard !scene5BridgeAdvanceScheduled else { return }
+        scene5BridgeAdvanceScheduled = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Scene5State.bridgeAdvanceDelay) { [weak self] in
+            guard let self, self.currentScene == "S5" else { return }
+            self.turnCount = 6
+            self.stateMachine?.enter(Scene6State.self)
+            self.scene5BridgeAdvanceScheduled = false
+        }
+    }
+
+    private func applyChoicesEnsuringMinimum(_ texts: [String]) {
+        var pool = texts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let defaults = [
+            "I don't know what to say.",
+            "Stop talking in riddles.",
+            "I'm scared.",
+            "What does that mean?",
+            "I can't do this right now."
+        ].shuffled()
+
+        for fallback in defaults where pool.count < 3 {
+            let key = normalizedLine(fallback)
+            guard !pastChoices.contains(key) else { continue }
+            guard !pool.contains(where: { normalizedLine($0) == key }) else { continue }
+            pool.append(fallback)
+        }
+
+        guard pool.count >= 3 else { return }
+
+        var newChoices = [
+            PlayerChoice(text: pool[0], type: .trust),
+            PlayerChoice(text: pool[1], type: .denial),
+            PlayerChoice(text: pool[2], type: .avoidance)
+        ]
+        newChoices.shuffle()
+        currentChoices = newChoices
+        pastChoices.append(contentsOf: pool.prefix(3).map(normalizedLine))
     }
     
     // MARK: - Advanced Token & Guardrail Protection (iOS 18+)
@@ -677,7 +875,7 @@ class GameManager: ObservableObject {
         @available(iOS 18.0, macOS 15.0, *)
         private func optimizeTokenCapacityBeforeReply() async {
     #if canImport(FoundationModels)
-            let model = SystemLanguageModel.default
+            let model = Self.narrativeLanguageModel
             let safetyBuffer = 3200 // Batas aman sebelum jebol limit 4096 token
             
             var currentTokenCount = 0
@@ -752,20 +950,18 @@ class GameManager: ObservableObject {
             triggerSystemMessage("🚨 ERROR: SIGNAL INTERFERENCE DETECTED. DIALOGUE SEGMENT REMOVED.")
             
             let safetyBreakers = [
-                "kamu... tidak boleh... mendengarkan...",
-                "sinyalnya... dingin sekali di sini...",
-                "mereka menyaring suaraku...",
-                "jangan biarkan mereka memutus kita..."
+                "you... can't... listen...",
+                "the signal... it's so cold here...",
+                "they're filtering my voice...",
+                "don't let them cut us off..."
             ]
             
-            // Alex mengirim pesan darurat terfragmentasi
             addAlexMessage(safetyBreakers.randomElement()!, type: .text)
             
-            // Paksa keyboard memunculkan pilihan respons baru bertema panik agar game tidak stuck
-            setChoices([
-                "Alex?! Apa yang terjadi dengan pesanmu?",
-                "Siapa yang mencoba menyaring suaramu?!",
-                "Sistem ini mulai membuatku takut."
+            applyChoicesEnsuringMinimum([
+                "Alex?! What happened to your message?",
+                "Who's trying to filter your voice?!",
+                "This system is starting to scare me."
             ])
         }
 
@@ -774,6 +970,9 @@ class GameManager: ObservableObject {
     func addAlexMessage(_ text: String, type: MessageType) {
         markLatestPlayerMessageReadIfNeeded()
         messages.append(Message(text: text, isFromMe: false, time: currentTime(), isRead: false, type: type))
+        if case .voiceNote = type, let last = messages.last {
+            pendingVoiceNoteAutoPlayID = last.id
+        }
         guard isPlayerInChat, let last = messages.last, !last.isFromMe else {
             // Player isn't in chat — play notification SFX so the lock-screen feed lights up audibly.
             if !isPlayerInChat {
@@ -845,25 +1044,37 @@ class GameManager: ObservableObject {
         guard let last = messages.last, last.isFromMe else { return }
         guard !isTyping else { return }
         guard !isGeneratingAlexReply else { return }
-        Task { await self.generateAlexReply() }
+        Task {
+            await self.generateAlexReply()
+            if self.currentChoices.isEmpty {
+                await self.forceRecoverStuckTurn(reason: "resumePending")
+            }
+        }
+    }
+
+    /// Voice note that should auto-play once when its bubble first appears (live send only).
+    private(set) var pendingVoiceNoteAutoPlayID: UUID?
+
+    func shouldAutoPlayVoiceNote(for messageID: UUID) -> Bool {
+        pendingVoiceNoteAutoPlayID == messageID
+    }
+
+    func clearPendingVoiceNoteAutoPlay(messageID: UUID) {
+        if pendingVoiceNoteAutoPlayID == messageID {
+            pendingVoiceNoteAutoPlayID = nil
+        }
     }
 
     /// Called when loading a save so no stale LLM work keeps running against restored state.
     func resetAlexPipelineForRestore() {
         isTyping = false
         isGeneratingAlexReply = false
+        pendingVoiceNoteAutoPlayID = nil
+        scene5BridgeAdvanceScheduled = false
     }
 
     func setChoices(_ texts: [String]) {
-        guard texts.count >= 3 else { return }
-        var newChoices = [
-            PlayerChoice(text: texts[0], type: .trust),
-            PlayerChoice(text: texts[1], type: .denial),
-            PlayerChoice(text: texts[2], type: .avoidance)
-        ]
-        newChoices.shuffle()
-        currentChoices = newChoices
-        pastChoices.append(contentsOf: texts.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        applyChoicesEnsuringMinimum(texts)
     }
 
     private func advanceNarrativeStateIfNeeded() {
@@ -933,6 +1144,67 @@ class GameManager: ObservableObject {
             return [safetyBreakers.randomElement()!]
         }
         return filtered
+    }
+
+    private static let indonesianLeakTokens = [
+        "kamu", "tidak", "berarti", "terlambat", "sinyal", "mendengarkan",
+        "jangan", "mereka", "suaraku", "memutus", "apa yang", "siapa yang",
+        "mulai membuat", "pesanmu"
+    ]
+
+    private static let alexVoiceInChoiceMarkers = [
+        "i'm still", "its cold", "it's cold", "on the bridge", "please don't leave",
+        "can't you hear", "waiting for you", "in the rain", "they're coming for me"
+    ]
+
+    private func sanitizePlayerChoices(_ choices: [String], alexReplies: [String]) -> [String] {
+        var valid: [String] = []
+        for choice in choices {
+            guard isValidPlayerChoice(choice, alexReplies: alexReplies) else { continue }
+            let normalized = normalizedLine(choice)
+            guard !valid.contains(where: { normalizedLine($0) == normalized }) else { continue }
+            valid.append(choice)
+            if valid.count == 3 { break }
+        }
+        return valid
+    }
+
+    private func isValidPlayerChoice(_ text: String, alexReplies: [String]) -> Bool {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 3 else { return false }
+        if clean.hasPrefix("[SYSTEM") { return false }
+        if isLikelyIndonesian(clean) { return false }
+
+        let lower = normalizedLine(clean)
+        if alexReplies.contains(where: { normalizedLine($0) == lower }) { return false }
+        if Self.alexVoiceInChoiceMarkers.contains(where: { lower.contains($0) }) { return false }
+
+        if looksLikeAlexFragment(clean) && !hasPlayerPerspective(clean) {
+            return false
+        }
+        return true
+    }
+
+    private func isLikelyIndonesian(_ text: String) -> Bool {
+        let lower = normalizedLine(text)
+        return Self.indonesianLeakTokens.contains { lower.contains($0) }
+    }
+
+    private func hasPlayerPerspective(_ text: String) -> Bool {
+        let lower = normalizedLine(text)
+        let markers = [
+            " i ", "i'm", "i've", " i'd", " my ", " me ", "alex",
+            "where ", "what ", "who ", "how ", "why ", "please ",
+            "stop ", "don't ", "do you ", "are you ", "can you "
+        ]
+        return markers.contains { lower.contains($0) } || lower.hasPrefix("i ")
+    }
+
+    private func looksLikeAlexFragment(_ text: String) -> Bool {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isMostlyLowercase = clean == clean.lowercased()
+        let wordCount = clean.split(separator: " ").count
+        return isMostlyLowercase && wordCount <= 8 && !clean.contains("?")
     }
 
     private func normalizedLine(_ text: String) -> String {
