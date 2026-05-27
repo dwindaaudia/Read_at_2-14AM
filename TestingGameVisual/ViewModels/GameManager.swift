@@ -738,7 +738,7 @@ class GameManager: ObservableObject {
                         Step 1: Analyze what the PLAYER said. Are they trusting, denying, or avoiding?
                         Step 2: Write replies[] as Alex — acknowledge them, then push the scene (SITUATION).
                         Step 3: Write choices[] as the PLAYER's next messages to Alex — first person, reacting to your replies[].
-                        Step 4: choices[0]=trust, choices[1]=denial, choices[2]=avoidance. Never Alex's voice in choices[].
+                        Step 4: choices[0]=open/helpful reaction, choices[1]=skeptical/refusing reaction, choices[2]=hesitant/deflecting reaction. Never Alex's voice in choices[].
 
                         # RECENT HISTORY (Avoid Repetition):
                         \(recentChatHistory)
