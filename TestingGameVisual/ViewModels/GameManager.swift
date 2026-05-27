@@ -123,9 +123,9 @@ class GameManager: ObservableObject {
             "<insert Alex's second sentence here ONLY if needed, otherwise do not include this item>"
           ],
           "choices": [
-            "<insert Player Choice 1: Trust>",
-            "<insert Player Choice 2: Denial>",
-            "<insert Player Choice 3: Avoidance>"
+            "<write a first-person player response that is open, trusting, or willing to engage>",
+            "<write a first-person player response that pushes back, doubts, or refuses to believe>",
+            "<write a first-person player response that deflects, hesitates, or avoids the topic>"
           ]
         }
         
